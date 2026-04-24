@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "ai.droidfarm.desktop",
   "build": {
-    "beforeDevCommand": "cd ../frontend && npm run dev",
+    "beforeDevCommand": "npm --prefix ../frontend run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "cd ../frontend && npm install && npm run build",
+    "beforeBuildCommand": "npm --prefix ../frontend install && npm --prefix ../frontend run build",
     "frontendDist": "../frontend/dist"
   },
   "app": {
