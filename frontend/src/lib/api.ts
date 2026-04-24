@@ -131,4 +131,32 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ url, filename }),
     }),
+  // Per-phone automation: shell, launch, logcat, packages.
+  phoneShell: (id: number, cmd: string, timeout_s?: number) =>
+    req<{ ok: boolean; stdout: string; stderr?: string }>(
+      `/api/phones/${id}/shell`,
+      { method: "POST", body: JSON.stringify({ cmd, timeout_s }) },
+    ),
+  phoneLaunch: (id: number, pkg: string) =>
+    req<void>(`/api/phones/${id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ package: pkg }),
+    }),
+  phoneForceStop: (id: number, pkg: string) =>
+    req<void>(`/api/phones/${id}/force-stop`, {
+      method: "POST",
+      body: JSON.stringify({ package: pkg }),
+    }),
+  phoneUninstall: (id: number, pkg: string) =>
+    req<void>(`/api/phones/${id}/uninstall`, {
+      method: "POST",
+      body: JSON.stringify({ package: pkg }),
+    }),
+  phonePackages: (id: number) =>
+    req<string[]>(`/api/phones/${id}/packages`),
+  phoneLogcat: async (id: number, lines = 300) => {
+    const r = await fetch(`/api/phones/${id}/logcat?lines=${lines}`);
+    if (!r.ok) throw new Error(await r.text());
+    return await r.text();
+  },
 };

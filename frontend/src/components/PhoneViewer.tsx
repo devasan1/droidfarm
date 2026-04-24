@@ -7,6 +7,11 @@ import {
   Power,
   Volume2,
   VolumeX,
+  Terminal as TerminalIcon,
+  FileText,
+  Package as PackageIcon,
+  Play,
+  RefreshCw,
 } from "lucide-react";
 import { api } from "../lib/api";
 import type { Phone } from "../lib/types";
@@ -252,36 +257,7 @@ export default function PhoneViewer({ phone, onClose }: Props) {
           </div>
         </div>
 
-        <aside className="hidden w-64 flex-col gap-2 text-xs text-ink-300 md:flex">
-          <div className="card px-3 py-2">
-            <div className="font-medium text-ink-100">{phone.name}</div>
-            <div className="text-ink-400">
-              {phone.device_profile} · Android {phone.android_version} ·{" "}
-              {phone.resolution}
-            </div>
-          </div>
-          <div className="card space-y-1 px-3 py-2 leading-relaxed">
-            <div className="font-medium text-ink-100">Controls</div>
-            <div>
-              <span className="text-ink-500">Click</span> the screen to tap.
-            </div>
-            <div>
-              <span className="text-ink-500">Drag</span> to swipe (for
-              scrolling).
-            </div>
-            <div>
-              <span className="text-ink-500">Type</span> directly to send text
-              — Enter / Backspace / Arrows / Tab all route through.
-            </div>
-            <div>
-              <span className="text-ink-500">Ctrl+V</span> to paste clipboard
-              text (handy for long passwords / tokens).
-            </div>
-            <div>
-              <span className="text-ink-500">Esc</span> to close.
-            </div>
-          </div>
-        </aside>
+        <PhoneSidePanel phone={phone} />
 
         <button
           type="button"
@@ -291,6 +267,254 @@ export default function PhoneViewer({ phone, onClose }: Props) {
         >
           <X size={16} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+function PhoneSidePanel({ phone }: { phone: Phone }) {
+  const [tab, setTab] = useState<"info" | "console" | "logs" | "apps">("info");
+  return (
+    <aside className="hidden w-[22rem] flex-col gap-2 text-xs text-ink-300 md:flex">
+      <div className="card px-3 py-2">
+        <div className="font-medium text-ink-100">{phone.name}</div>
+        <div className="text-ink-400">
+          {phone.device_profile} · Android {phone.android_version} ·{" "}
+          {phone.resolution}
+        </div>
+      </div>
+      <div className="flex gap-1">
+        <TabButton active={tab === "info"} onClick={() => setTab("info")}>
+          Info
+        </TabButton>
+        <TabButton active={tab === "console"} onClick={() => setTab("console")}>
+          <TerminalIcon size={12} /> Shell
+        </TabButton>
+        <TabButton active={tab === "logs"} onClick={() => setTab("logs")}>
+          <FileText size={12} /> Logs
+        </TabButton>
+        <TabButton active={tab === "apps"} onClick={() => setTab("apps")}>
+          <PackageIcon size={12} /> Apps
+        </TabButton>
+      </div>
+      {tab === "info" && (
+        <div className="card space-y-1 px-3 py-2 leading-relaxed">
+          <div className="font-medium text-ink-100">Controls</div>
+          <div>
+            <span className="text-ink-500">Click</span> the screen to tap.
+          </div>
+          <div>
+            <span className="text-ink-500">Drag</span> to swipe.
+          </div>
+          <div>
+            <span className="text-ink-500">Type</span> to send text — Enter /
+            Backspace / Arrows / Tab route through.
+          </div>
+          <div>
+            <span className="text-ink-500">Ctrl+V</span> to paste clipboard.
+          </div>
+          <div>
+            <span className="text-ink-500">Esc</span> to close.
+          </div>
+        </div>
+      )}
+      {tab === "console" && <ShellTab phone={phone} />}
+      {tab === "logs" && <LogsTab phone={phone} />}
+      {tab === "apps" && <AppsTab phone={phone} />}
+    </aside>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-1 items-center justify-center gap-1 rounded border px-2 py-1 text-xs ${
+        active
+          ? "border-indigo-500/60 bg-indigo-500/15 text-ink-100"
+          : "border-ink-800 bg-ink-900 text-ink-400 hover:text-ink-200"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ShellTab({ phone }: { phone: Phone }) {
+  const [cmd, setCmd] = useState("pm list packages -3");
+  const [history, setHistory] = useState<{ cmd: string; out: string; ok: boolean }[]>(
+    [],
+  );
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    if (!cmd.trim()) return;
+    setBusy(true);
+    try {
+      const r = await api.phoneShell(phone.id, cmd);
+      setHistory((h) => [
+        { cmd, out: r.ok ? r.stdout : r.stderr || "", ok: r.ok },
+        ...h,
+      ]);
+    } catch (e) {
+      setHistory((h) => [{ cmd, out: String(e), ok: false }, ...h]);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="card flex max-h-[55vh] flex-col px-3 py-2">
+      <div className="flex gap-1">
+        <input
+          className="input flex-1 py-1 text-xs"
+          value={cmd}
+          onChange={(e) => setCmd(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void run();
+            }
+          }}
+          placeholder="adb shell …"
+          spellCheck={false}
+        />
+        <button
+          className="btn-secondary py-1 text-xs"
+          onClick={() => void run()}
+          disabled={busy}
+        >
+          {busy ? "…" : "Run"}
+        </button>
+      </div>
+      <div className="mt-2 flex-1 overflow-auto font-mono text-[11px] leading-snug text-ink-300">
+        {history.length === 0 && (
+          <div className="text-ink-500">
+            Runs as <code>adb shell …</code>. Try <code>getprop ro.build.version.release</code>,
+            <code>dumpsys battery</code>, <code>settings list secure</code>.
+          </div>
+        )}
+        {history.map((h, i) => (
+          <div key={i} className="mt-1 border-t border-ink-800/60 pt-1">
+            <div className={h.ok ? "text-emerald-300" : "text-red-300"}>
+              $ {h.cmd}
+            </div>
+            <pre className="whitespace-pre-wrap text-ink-200">{h.out}</pre>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LogsTab({ phone }: { phone: Phone }) {
+  const [text, setText] = useState<string>("(press Refresh)");
+  const [busy, setBusy] = useState(false);
+  async function refresh() {
+    setBusy(true);
+    try {
+      const t = await api.phoneLogcat(phone.id, 500);
+      setText(t || "(empty)");
+    } catch (e) {
+      setText(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="card flex max-h-[55vh] flex-col px-3 py-2">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] text-ink-500">logcat · last 500 lines</div>
+        <button
+          className="btn-secondary py-1 text-xs"
+          onClick={() => void refresh()}
+          disabled={busy}
+        >
+          <RefreshCw size={12} /> {busy ? "…" : "Refresh"}
+        </button>
+      </div>
+      <pre className="flex-1 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] leading-snug text-ink-200">
+        {text}
+      </pre>
+    </div>
+  );
+}
+
+function AppsTab({ phone }: { phone: Phone }) {
+  const [pkgs, setPkgs] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function refresh() {
+    setBusy(true);
+    setErr(null);
+    try {
+      setPkgs(await api.phonePackages(phone.id));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone.id]);
+  return (
+    <div className="card flex max-h-[55vh] flex-col px-3 py-2">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] text-ink-500">installed apps (user)</div>
+        <button
+          className="btn-secondary py-1 text-xs"
+          onClick={() => void refresh()}
+          disabled={busy}
+        >
+          <RefreshCw size={12} /> {busy ? "…" : "Refresh"}
+        </button>
+      </div>
+      {err && <div className="text-red-300">{err}</div>}
+      <div className="flex-1 overflow-auto divide-y divide-ink-800/60">
+        {pkgs.map((p) => (
+          <div key={p} className="flex items-center justify-between py-1 text-[11px]">
+            <code className="truncate text-ink-200">{p}</code>
+            <div className="flex gap-1">
+              <button
+                className="btn-ghost py-0.5 text-[10px]"
+                title="Launch"
+                onClick={() => api.phoneLaunch(phone.id, p).catch(() => {})}
+              >
+                <Play size={10} />
+              </button>
+              <button
+                className="btn-ghost py-0.5 text-[10px]"
+                title="Force-stop"
+                onClick={() => api.phoneForceStop(phone.id, p).catch(() => {})}
+              >
+                ■
+              </button>
+              <button
+                className="btn-ghost py-0.5 text-[10px] text-red-300"
+                title="Uninstall"
+                onClick={async () => {
+                  if (!window.confirm(`Uninstall ${p}?`)) return;
+                  await api.phoneUninstall(phone.id, p).catch(() => {});
+                  void refresh();
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        ))}
+        {!busy && pkgs.length === 0 && !err && (
+          <div className="py-2 text-ink-500">no user-installed apps yet</div>
+        )}
       </div>
     </div>
   );

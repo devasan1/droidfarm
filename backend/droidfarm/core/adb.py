@@ -147,6 +147,49 @@ def set_mock_location(serial: str, lat: float, lon: float) -> None:
           "--ef", "lat", str(lat), "--ef", "lon", str(lon))
 
 
+def launch_package(serial: str, package: str) -> None:
+    """Start a package via monkey (doesn't require knowing the launcher
+    activity). Works for any installed app."""
+    shell(serial, "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1")
+
+
+def force_stop_package(serial: str, package: str) -> None:
+    shell(serial, "am", "force-stop", package)
+
+
+def uninstall_package(serial: str, package: str) -> None:
+    _run(serial, "uninstall", package, timeout=120, check=False)
+
+
+def list_packages(serial: str, only_third_party: bool = True) -> list[str]:
+    """Return a list of installed package names."""
+    args = ["pm", "list", "packages"]
+    if only_third_party:
+        args.append("-3")
+    out = shell(serial, *args)
+    pkgs = []
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("package:"):
+            pkgs.append(line[len("package:"):])
+    return sorted(pkgs)
+
+
+def logcat_tail(serial: str, lines: int = 300, timeout: float = 10.0) -> str:
+    """Grab the last N lines of logcat. Non-streaming — suits a 'refresh'
+    button in the UI."""
+    cmd = [
+        SETTINGS.adb_path, "-s", serial, "logcat",
+        "-d",           # dump-and-exit
+        "-t", str(int(lines)),
+        "-v", "threadtime",
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        raise ADBError(f"logcat failed: {(r.stderr or r.stdout).strip()}")
+    return r.stdout
+
+
 def wait_for_boot(serial: str, timeout_s: float = 180.0) -> bool:
     """Block until ``sys.boot_completed=1``. Returns True on success."""
     import time

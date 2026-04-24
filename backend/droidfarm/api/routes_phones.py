@@ -995,3 +995,105 @@ def phone_keyevent(phone_id: int, payload: _KeyIn) -> None:
 
     serial = _adb_serial_for(phone_id)
     adb_mod.input_keyevent(serial, payload.keycode)
+
+
+# ---------- Shell / logcat / package automation ---------------------------
+
+
+class _ShellIn(BaseModel):
+    cmd: str  # raw command, e.g. "pm list packages -3"
+    timeout_s: float = 30.0
+
+
+class _ShellOut(BaseModel):
+    ok: bool
+    stdout: str
+    stderr: str = ""
+
+
+@router.post("/{phone_id}/shell", response_model=_ShellOut)
+def phone_shell(phone_id: int, payload: _ShellIn) -> _ShellOut:
+    """Run an arbitrary ``adb shell`` command against a running phone.
+
+    This is the 'escape hatch' — same semantics as pasting into a
+    terminal with ``adb -s <serial> shell ...``. We split on whitespace;
+    use ``&&`` or quotes sparingly since we're not spinning up a real
+    login shell.
+    """
+    import shlex
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    try:
+        argv = shlex.split(payload.cmd)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"bad shell syntax: {e}")
+    if not argv:
+        raise HTTPException(status_code=400, detail="empty command")
+    try:
+        out = adb_mod.shell(serial, *argv, timeout=payload.timeout_s)
+        return _ShellOut(ok=True, stdout=out)
+    except adb_mod.ADBError as e:
+        return _ShellOut(ok=False, stdout="", stderr=str(e))
+
+
+class _LaunchIn(BaseModel):
+    package: str
+
+
+@router.post("/{phone_id}/launch", status_code=204)
+def phone_launch(phone_id: int, payload: _LaunchIn) -> None:
+    """Start an installed app by package name (e.g. com.instagram.android)."""
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    try:
+        adb_mod.launch_package(serial, payload.package)
+    except adb_mod.ADBError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{phone_id}/force-stop", status_code=204)
+def phone_force_stop(phone_id: int, payload: _LaunchIn) -> None:
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    try:
+        adb_mod.force_stop_package(serial, payload.package)
+    except adb_mod.ADBError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{phone_id}/uninstall", status_code=204)
+def phone_uninstall(phone_id: int, payload: _LaunchIn) -> None:
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    adb_mod.uninstall_package(serial, payload.package)
+
+
+@router.get("/{phone_id}/packages")
+def phone_packages(phone_id: int, only_third_party: bool = True) -> list[str]:
+    """List installed packages. Defaults to user-installed only (no
+    system apps) since that's what the UI wants to show."""
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    try:
+        return adb_mod.list_packages(serial, only_third_party=only_third_party)
+    except adb_mod.ADBError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{phone_id}/logcat")
+def phone_logcat(phone_id: int, lines: int = 300) -> Response:
+    """Dump the last N lines of logcat as plain text. Polled on-demand
+    by the viewer's 'Logs' tab."""
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    try:
+        text = adb_mod.logcat_tail(serial, lines=lines)
+    except adb_mod.ADBError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return Response(content=text, media_type="text/plain")
