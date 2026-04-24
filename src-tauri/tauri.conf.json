@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DroidFarm",
+  "version": "0.1.0",
+  "identifier": "ai.droidfarm.desktop",
+  "build": {
+    "beforeDevCommand": "cd ../frontend && npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "cd ../frontend && npm install && npm run build",
+    "frontendDist": "../frontend/dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "DroidFarm",
+        "url": "http://localhost:7870",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../backend": "backend/",
+      "../DroidFarm.bat": "DroidFarm.bat"
+    },
+    "externalBin": [],
+    "category": "Productivity",
+    "shortDescription": "Desktop control plane for proxied Android emulators",
+    "longDescription": "DroidFarm runs multiple clean Android emulator phones on Windows, each with a unique proxy and a geo profile that matches the proxy country/city. Includes live phone previews, APK library, scheduled actions, and export/import for moving a farm to a new VM.",
+    "windows": {
+      "wix": {
+        "language": ["en-US"]
+      },
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perUser"
+      }
+    }
+  }
+}

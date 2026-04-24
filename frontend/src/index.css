@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 rounded-md border border-ink-700 bg-ink-900 px-3 py-1.5 text-sm font-medium text-ink-100 hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-ink-300 hover:bg-ink-800 hover:text-ink-100;
+  }
+  .btn-danger {
+    @apply inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .card {
+    @apply rounded-xl border border-ink-800 bg-ink-900;
+  }
+  .input {
+    @apply w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-ink-100 focus:border-emerald-500 focus:outline-none;
+  }
+  .label {
+    @apply block text-xs font-medium uppercase tracking-wide text-ink-400;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-ink-700 bg-ink-900 px-2 py-0.5 text-xs;
+  }
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
