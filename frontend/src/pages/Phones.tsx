@@ -96,7 +96,37 @@ function statusColor(s: Phone["status"]): string {
 }
 
 function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) {
-  const [busy, setBusy] = useState<"start" | "stop" | "wipe" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"start" | "stop" | "wipe" | "delete" | "install" | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [installMsg, setInstallMsg] = useState<string | null>(null);
+
+  async function uploadAndInstall(files: FileList | File[]) {
+    const list = Array.from(files).filter((f) => f.name.toLowerCase().endsWith(".apk"));
+    if (list.length === 0) return;
+    if (phone.status !== "running") {
+      setInstallMsg("phone not running — start it first");
+      return;
+    }
+    setBusy("install");
+    try {
+      for (const f of list) {
+        setInstallMsg(`uploading ${f.name}…`);
+        const apk = await api.uploadApk(f);
+        setInstallMsg(`installing ${f.name}…`);
+        const r = await api.installApkOnPhone(phone.id, apk.id);
+        if (!r.ok) {
+          setInstallMsg(`failed: ${r.error ?? "unknown"}`);
+          break;
+        }
+        setInstallMsg(`installed ${f.name}`);
+      }
+    } catch (e) {
+      setInstallMsg(String(e));
+    } finally {
+      setBusy(null);
+      setTimeout(() => setInstallMsg(null), 4000);
+    }
+  }
 
   async function act(kind: "start" | "stop" | "wipe" | "delete") {
     if (kind === "wipe" && !window.confirm(
@@ -116,7 +146,24 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
   }
 
   return (
-    <div className="card flex flex-col gap-3 p-4">
+    <div
+      className={clsx(
+        "card flex flex-col gap-3 p-4 transition-colors",
+        dragOver && "border-emerald-500 ring-2 ring-emerald-500/40",
+      )}
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer.items).some((i) => i.kind === "file")) {
+          e.preventDefault();
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        uploadAndInstall(e.dataTransfer.files);
+      }}
+    >
       <div className="flex items-center justify-between gap-2">
         <div>
           <div className="font-medium text-ink-50">{phone.name}</div>
@@ -128,6 +175,11 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
           {phone.status}
         </span>
       </div>
+      {installMsg && (
+        <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200">
+          {installMsg}
+        </div>
+      )}
 
       <div className="flex aspect-[9/16] items-center justify-center rounded-md border border-ink-800 bg-ink-950 text-xs text-ink-600">
         {phone.status === "running" ? (

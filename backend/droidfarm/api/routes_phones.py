@@ -6,6 +6,7 @@ import logging
 import threading
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from droidfarm.config import SETTINGS
@@ -17,7 +18,7 @@ from droidfarm.core.templates import (
     source_template_for,
     wipe_from_template,
 )
-from droidfarm.db import Phone, Proxy, session_scope
+from droidfarm.db import Apk, Phone, Proxy, session_scope
 from droidfarm.schemas import PhoneIn, PhoneOut, ProxyOut
 
 logger = logging.getLogger(__name__)
@@ -527,3 +528,85 @@ def wipe_phone(phone_id: int) -> PhoneOut:
         out = _phone_to_out(phone)
     _wipe_in_background(phone_id)
     return out
+
+
+# ---------- APK install ----------
+
+
+class _InstallApkIn(BaseModel):
+    apk_id: int
+
+
+class _InstallResult(BaseModel):
+    ok: bool
+    apk_id: int
+    phone_id: int
+    filename: str
+    error: str | None = None
+
+
+@router.post("/{phone_id}/install-apk", response_model=_InstallResult)
+def install_apk_on_phone(phone_id: int, payload: _InstallApkIn) -> _InstallResult:
+    """Install an APK from the library onto a running phone.
+
+    The phone must be running (``ldconsole`` wants a live instance, and
+    adb obviously does too). We try the driver's native installapp first
+    (fast — LDPlayer copies via the shared filesystem) and fall back to
+    ``adb install -r`` if the driver says it can't.
+    """
+    with session_scope() as s:
+        phone = s.get(Phone, phone_id)
+        if phone is None:
+            raise HTTPException(status_code=404, detail="phone not found")
+        if phone.status != "running":
+            raise HTTPException(
+                status_code=409,
+                detail=f"phone is {phone.status} — start it before installing APKs",
+            )
+        apk = s.get(Apk, payload.apk_id)
+        if apk is None:
+            raise HTTPException(status_code=404, detail="apk not found")
+        phone_name = phone.name
+        phone_ldindex = phone.ldplayer_index
+        apk_filename = apk.filename
+
+    apk_path = SETTINGS.apks_dir / apk_filename
+    if not apk_path.exists():
+        raise HTTPException(
+            status_code=410,
+            detail=f"apk file missing on disk: {apk_path} (re-upload the APK)",
+        )
+
+    driver = get_driver()
+    try:
+        # Native path (LDPlayer: fast, no adb hop).
+        driver.install_apk(phone_name, apk_path)
+        return _InstallResult(
+            ok=True, apk_id=payload.apk_id, phone_id=phone_id, filename=apk_filename,
+        )
+    except Exception as native_exc:
+        logger.info("driver.install_apk native path failed, trying adb: %s", native_exc)
+
+    # Fallback: adb install -r (only if the driver surfaces adb + the phone
+    # has an adb port).
+    if not getattr(driver, "supports_adb", True):
+        raise HTTPException(
+            status_code=500,
+            detail=f"driver install failed and adb fallback disabled: {native_exc}",
+        )
+    port = 5555 + 2 * (phone_ldindex or 0)
+    from droidfarm.core import adb as adb_mod
+
+    serial = f"127.0.0.1:{port}"
+    try:
+        adb_mod.connect(serial)
+        adb_mod.install(serial, apk_path)
+        return _InstallResult(
+            ok=True, apk_id=payload.apk_id, phone_id=phone_id, filename=apk_filename,
+        )
+    except Exception as e:
+        logger.exception("adb install fallback also failed")
+        return _InstallResult(
+            ok=False, apk_id=payload.apk_id, phone_id=phone_id,
+            filename=apk_filename, error=str(e),
+        )

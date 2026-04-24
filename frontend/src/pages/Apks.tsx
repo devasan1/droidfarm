@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Upload } from "lucide-react";
+import { Download, Trash2, Upload } from "lucide-react";
 import { api } from "../lib/api";
-import type { Apk } from "../lib/types";
+import type { Apk, Phone } from "../lib/types";
 
 export default function Apks() {
   const [apks, setApks] = useState<Apk[]>([]);
+  const [phones, setPhones] = useState<Phone[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   async function refresh() {
     try {
-      setApks(await api.listApks());
+      const [a, p] = await Promise.all([api.listApks(), api.listPhones()]);
+      setApks(a);
+      setPhones(p);
     } catch (e) {
       setError(String(e));
     }
@@ -18,7 +22,21 @@ export default function Apks() {
 
   useEffect(() => {
     refresh();
+    const t = setInterval(refresh, 3000);
+    return () => clearInterval(t);
   }, []);
+
+  async function installOn(apkId: number, phoneId: number) {
+    setFlash(null);
+    try {
+      const r = await api.installApkOnPhone(phoneId, apkId);
+      setFlash(r.ok ? `installed on phone ${phoneId}` : `failed: ${r.error ?? "unknown"}`);
+    } catch (e) {
+      setFlash(String(e));
+    } finally {
+      setTimeout(() => setFlash(null), 4000);
+    }
+  }
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -82,6 +100,11 @@ export default function Apks() {
           {error}
         </div>
       )}
+      {flash && (
+        <div className="mb-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-sm text-emerald-200">
+          {flash}
+        </div>
+      )}
 
       <div
         className="card p-6"
@@ -115,12 +138,37 @@ export default function Apks() {
                     {new Date(a.added_at).toLocaleString()}
                   </td>
                   <td className="px-2 py-2 text-right">
-                    <button
-                      className="btn-ghost text-red-300 hover:bg-red-500/10"
-                      onClick={() => remove(a)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="inline-flex items-center gap-1">
+                      <select
+                        className="input py-1 text-xs"
+                        defaultValue=""
+                        onChange={(e) => {
+                          const id = Number(e.target.value);
+                          if (id) installOn(a.id, id);
+                          e.currentTarget.value = "";
+                        }}
+                      >
+                        <option value="" disabled>
+                          <Download size={12} /> Install to…
+                        </option>
+                        {phones
+                          .filter((p) => p.status === "running")
+                          .map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        {phones.filter((p) => p.status === "running").length === 0 && (
+                          <option disabled>no running phones</option>
+                        )}
+                      </select>
+                      <button
+                        className="btn-ghost text-red-300 hover:bg-red-500/10"
+                        onClick={() => remove(a)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

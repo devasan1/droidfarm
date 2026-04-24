@@ -36,6 +36,11 @@ export const api = {
   startPhone: (id: number) => req<Phone>(`/api/phones/${id}/start`, { method: "POST" }),
   stopPhone: (id: number) => req<Phone>(`/api/phones/${id}/stop`, { method: "POST" }),
   wipePhone: (id: number) => req<Phone>(`/api/phones/${id}/wipe`, { method: "POST" }),
+  installApkOnPhone: (phoneId: number, apkId: number) =>
+    req<{ ok: boolean; filename: string; error: string | null }>(
+      `/api/phones/${phoneId}/install-apk`,
+      { method: "POST", body: JSON.stringify({ apk_id: apkId }) },
+    ),
 
   listProxies: () => req<Proxy[]>("/api/proxies"),
   createProxy: (body: ProxyIn) =>
