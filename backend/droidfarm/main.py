@@ -1,0 +1,76 @@
+"""FastAPI entrypoint."""
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from droidfarm import __version__
+from droidfarm.api.routes_apks import router as apks_router
+from droidfarm.api.routes_health import router as health_router
+from droidfarm.api.routes_phones import router as phones_router
+from droidfarm.api.routes_proxies import router as proxies_router
+from droidfarm.config import SETTINGS
+from droidfarm.db import init_db
+
+logger = logging.getLogger(__name__)
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="DroidFarm",
+        description="Desktop control plane for proxied Android emulators.",
+        version=__version__,
+    )
+
+    # CORS for the Vite dev server.
+    if SETTINGS.dev_mode:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    app.include_router(health_router)
+    app.include_router(phones_router)
+    app.include_router(proxies_router)
+    app.include_router(apks_router)
+
+    @app.on_event("startup")
+    def _startup() -> None:
+        init_db()
+        logger.info("droidfarm %s listening on %s:%s", __version__, SETTINGS.host, SETTINGS.port)
+        logger.info("data dir: %s", SETTINGS.data_dir)
+        logger.info("mock driver: %s", SETTINGS.mock_driver)
+        if SETTINGS.ldconsole_path:
+            logger.info("ldconsole: %s", SETTINGS.ldconsole_path)
+        else:
+            logger.warning("ldconsole.exe not found; running with mock driver")
+
+    return app
+
+
+app = create_app()
+
+
+def main() -> None:
+    import uvicorn
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    uvicorn.run(
+        "droidfarm.main:app",
+        host=SETTINGS.host,
+        port=SETTINGS.port,
+        reload=SETTINGS.dev_mode,
+    )
+
+
+if __name__ == "__main__":
+    main()
