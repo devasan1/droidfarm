@@ -126,6 +126,48 @@ def list_proxies() -> list[ProxyOut]:
         return [_proxy_to_out(p) for p in proxies]  # type: ignore[misc]
 
 
+@router.get("/stats")
+def proxy_stats() -> dict:
+    """Aggregate health stats for the dashboard strip at the top of the
+    Proxies page."""
+    from sqlalchemy import func
+
+    with session_scope() as s:
+        total = s.execute(select(func.count(Proxy.id))).scalar() or 0
+        healthy = s.execute(
+            select(func.count(Proxy.id)).where(Proxy.is_healthy.is_(True))
+        ).scalar() or 0
+        unhealthy = total - healthy
+        in_use = s.execute(
+            select(func.count(Proxy.id)).where(Proxy.id.in_(
+                select(Proxy.id).join(Proxy.phone)
+            ))
+        ).scalar() or 0
+        auto_rotate = s.execute(
+            select(func.count(Proxy.id)).where(Proxy.auto_rotate.is_(True))
+        ).scalar() or 0
+        latencies = [
+            l for (l,) in s.execute(
+                select(Proxy.latency_ms).where(Proxy.latency_ms.isnot(None))
+            ).all()
+        ]
+        avg_latency = int(sum(latencies) / len(latencies)) if latencies else None
+        last_checked = s.execute(
+            select(func.max(Proxy.last_checked_at))
+        ).scalar()
+
+    return {
+        "total": total,
+        "healthy": healthy,
+        "unhealthy": unhealthy,
+        "in_use": in_use,
+        "free": total - in_use,
+        "auto_rotate_enabled": auto_rotate,
+        "avg_latency_ms": avg_latency,
+        "last_checked_at": last_checked.isoformat() if last_checked else None,
+    }
+
+
 @router.get("/{proxy_id}", response_model=ProxyOut)
 def get_proxy(proxy_id: int) -> ProxyOut:
     with session_scope() as s:
@@ -280,48 +322,6 @@ def rotate_proxy(proxy_id: int) -> dict:
             "new_proxy": repl.label,
             "new_country": repl.country,
         }
-
-
-@router.get("/stats")
-def proxy_stats() -> dict:
-    """Aggregate health stats for the dashboard strip at the top of the
-    Proxies page."""
-    from sqlalchemy import func
-
-    with session_scope() as s:
-        total = s.execute(select(func.count(Proxy.id))).scalar() or 0
-        healthy = s.execute(
-            select(func.count(Proxy.id)).where(Proxy.is_healthy.is_(True))
-        ).scalar() or 0
-        unhealthy = total - healthy
-        in_use = s.execute(
-            select(func.count(Proxy.id)).where(Proxy.id.in_(
-                select(Proxy.id).join(Proxy.phone)
-            ))
-        ).scalar() or 0
-        auto_rotate = s.execute(
-            select(func.count(Proxy.id)).where(Proxy.auto_rotate.is_(True))
-        ).scalar() or 0
-        latencies = [
-            l for (l,) in s.execute(
-                select(Proxy.latency_ms).where(Proxy.latency_ms.isnot(None))
-            ).all()
-        ]
-        avg_latency = int(sum(latencies) / len(latencies)) if latencies else None
-        last_checked = s.execute(
-            select(func.max(Proxy.last_checked_at))
-        ).scalar()
-
-    return {
-        "total": total,
-        "healthy": healthy,
-        "unhealthy": unhealthy,
-        "in_use": in_use,
-        "free": total - in_use,
-        "auto_rotate_enabled": auto_rotate,
-        "avg_latency_ms": avg_latency,
-        "last_checked_at": last_checked.isoformat() if last_checked else None,
-    }
 
 
 @router.delete("/{proxy_id}", status_code=204)

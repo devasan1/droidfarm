@@ -20,10 +20,21 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!r.ok) {
-    let detail = r.statusText;
+    let detail: string = r.statusText;
     try {
       const body = await r.json();
-      detail = body.detail ?? detail;
+      const d = body.detail ?? body.error ?? body.message;
+      if (typeof d === "string") {
+        detail = d;
+      } else if (Array.isArray(d)) {
+        detail = d
+          .map((x: { msg?: string; message?: string } | string) =>
+            typeof x === "string" ? x : x.msg ?? x.message ?? JSON.stringify(x),
+          )
+          .join("; ");
+      } else if (d != null) {
+        detail = JSON.stringify(d);
+      }
     } catch {
       /* ignore */
     }
