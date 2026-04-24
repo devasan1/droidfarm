@@ -1,4 +1,4 @@
-import type { Apk, Phone, PhoneIn, Proxy, ProxyIn } from "./types";
+import type { Apk, HostGeo, Phone, PhoneIn, Proxy, ProxyIn } from "./types";
 
 const BASE = "";
 
@@ -28,6 +28,7 @@ export const api = {
   health: () => req<{ ok: boolean; mock_driver: boolean; ldconsole: string | null }>("/api/health"),
 
   listPhones: () => req<Phone[]>("/api/phones"),
+  hostGeo: () => req<HostGeo>("/api/phones/host-geo"),
   getPhone: (id: number) => req<Phone>(`/api/phones/${id}`),
   createPhone: (body: PhoneIn) =>
     req<Phone>("/api/phones", { method: "POST", body: JSON.stringify(body) }),
@@ -44,6 +45,9 @@ export const api = {
       { method: "POST", body: JSON.stringify({ text, default_scheme: defaultScheme }) },
     ),
   deleteProxy: (id: number) => req<void>(`/api/proxies/${id}`, { method: "DELETE" }),
+  checkProxy: (id: number) => req<Proxy>(`/api/proxies/${id}/check`, { method: "POST" }),
+  checkAllProxies: () =>
+    req<{ queued: number }>(`/api/proxies/check-all`, { method: "POST" }),
 
   listApks: () => req<Apk[]>("/api/apks"),
   deleteApk: (id: number) => req<void>(`/api/apks/${id}`, { method: "DELETE" }),

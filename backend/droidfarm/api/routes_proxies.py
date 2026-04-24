@@ -1,16 +1,22 @@
-"""Proxy CRUD + bulk import."""
+"""Proxy CRUD + bulk import + health-check/geo lookup."""
 
 from __future__ import annotations
 
+import logging
 import re
+import threading
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from droidfarm.api.routes_phones import _proxy_to_out
+from droidfarm.core.geoip import check_proxy
 from droidfarm.db import Proxy, session_scope
 from droidfarm.schemas import ProxyIn, ProxyOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/proxies", tags=["proxies"])
 
@@ -127,6 +133,64 @@ def get_proxy(proxy_id: int) -> ProxyOut:
         if p is None:
             raise HTTPException(status_code=404, detail="proxy not found")
         return _proxy_to_out(p)  # type: ignore[return-value]
+
+
+def _persist_check_result(proxy_id: int) -> None:
+    """Run check_proxy and write the result back to the DB."""
+    with session_scope() as s:
+        p = s.get(Proxy, proxy_id)
+        if p is None:
+            return
+        snapshot = p  # ORM object is bound; we can read it here for the check
+        result = check_proxy(snapshot)
+        p.is_healthy = result.ok
+        p.last_checked_at = datetime.now(timezone.utc)
+        p.last_error = result.error
+        p.latency_ms = result.latency_ms
+        if result.ok:
+            # Only overwrite geo when the lookup actually succeeded — keep
+            # whatever the user entered manually on failure.
+            if result.country: p.country = result.country
+            if result.region: p.region = result.region
+            if result.city: p.city = result.city
+            if result.latitude is not None: p.latitude = result.latitude
+            if result.longitude is not None: p.longitude = result.longitude
+            if result.timezone: p.timezone = result.timezone
+            if result.asn: p.asn = result.asn
+            if result.provider: p.provider = result.provider
+
+
+def _check_in_background(proxy_id: int) -> None:
+    threading.Thread(
+        target=_persist_check_result,
+        args=(proxy_id,),
+        name=f"check-proxy-{proxy_id}",
+        daemon=True,
+    ).start()
+
+
+@router.post("/{proxy_id}/check", response_model=ProxyOut)
+def check_proxy_endpoint(proxy_id: int) -> ProxyOut:
+    """Synchronously reach out through the proxy, populate geo + health."""
+    with session_scope() as s:
+        p = s.get(Proxy, proxy_id)
+        if p is None:
+            raise HTTPException(status_code=404, detail="proxy not found")
+    _persist_check_result(proxy_id)
+    with session_scope() as s:
+        p = s.get(Proxy, proxy_id)
+        assert p is not None
+        return _proxy_to_out(p)  # type: ignore[return-value]
+
+
+@router.post("/check-all")
+def check_all_proxies() -> dict:
+    """Kick off a health-check of every proxy in the background."""
+    with session_scope() as s:
+        ids = list(s.execute(select(Proxy.id)).scalars().all())
+    for pid in ids:
+        _check_in_background(pid)
+    return {"queued": len(ids)}
 
 
 @router.delete("/{proxy_id}", status_code=204)

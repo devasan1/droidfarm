@@ -70,7 +70,21 @@ export interface PhoneIn {
   proxy_mode?: ProxyMode;
   proxy_id?: number | null;
   auto_assign_proxy?: boolean;
+  bypass_ip?: boolean;
   preinstall_apks?: number[];
+}
+
+export interface HostGeo {
+  ok: boolean;
+  error: string | null;
+  ip: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  timezone: string | null;
+  provider: string | null;
 }
 
 export interface Apk {

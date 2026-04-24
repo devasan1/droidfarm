@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { api } from "../lib/api";
-import type { Phone, Proxy, ProxyMode } from "../lib/types";
+import type { HostGeo, Phone, Proxy, ProxyMode } from "../lib/types";
 
 interface Props {
   onClose: () => void;
   onCreated: (p: Phone) => void;
 }
 
-type ProxyChoice = "auto" | "pick" | "none";
+type ProxyChoice = "auto" | "pick" | "bypass";
 
 export default function AddPhoneModal({ onClose, onCreated }: Props) {
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [existingPhones, setExistingPhones] = useState<Phone[]>([]);
+  const [hostGeo, setHostGeo] = useState<HostGeo | null>(null);
   const [name, setName] = useState("");
   const [resolution, setResolution] = useState("1080x1920");
   const [dpi, setDpi] = useState(420);
@@ -29,6 +30,13 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
     api.listProxies().then(setProxies).catch(() => {});
     api.listPhones().then(setExistingPhones).catch(() => {});
   }, []);
+
+  // Lazy-load host geo the first time the user picks "bypass".
+  useEffect(() => {
+    if (proxyChoice === "bypass" && hostGeo === null) {
+      api.hostGeo().then(setHostGeo).catch(() => setHostGeo({ ok: false, error: "unreachable", ip: null, country: null, region: null, city: null, latitude: null, longitude: null, timezone: null, provider: null }));
+    }
+  }, [proxyChoice, hostGeo]);
 
   // Default name: phone-NN with NN = first free slot
   useEffect(() => {
@@ -59,10 +67,11 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
         dpi,
         cpu,
         ram_mb: ramMb,
-        proxy_mode: proxyMode,
+        proxy_mode: proxyChoice === "bypass" ? "none" : proxyMode,
         autostart,
         proxy_id: proxyChoice === "pick" ? proxyId : null,
         auto_assign_proxy: proxyChoice === "auto",
+        bypass_ip: proxyChoice === "bypass",
       });
       onCreated(phone);
     } catch (e) {
@@ -147,7 +156,7 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
           <div>
             <label className="label">Proxy</label>
             <div className="mt-2 grid grid-cols-3 gap-2">
-              {(["auto", "pick", "none"] as ProxyChoice[]).map((v) => (
+              {(["auto", "pick", "bypass"] as ProxyChoice[]).map((v) => (
                 <button
                   type="button"
                   key={v}
@@ -161,7 +170,7 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
                 >
                   {v === "auto" && "Auto-assign unique"}
                   {v === "pick" && "Pick from list"}
-                  {v === "none" && "No proxy"}
+                  {v === "bypass" && "Bypass (VM's IP)"}
                 </button>
               ))}
             </div>
@@ -189,7 +198,35 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
                 ))}
               </select>
             )}
-            {proxyChoice !== "none" && (
+            {proxyChoice === "bypass" && (
+              <div className="mt-2 rounded-md border border-ink-700 bg-ink-950 p-3 text-xs text-ink-300">
+                <div className="mb-1 font-medium text-ink-100">
+                  Phone will use the VM&apos;s own IP
+                </div>
+                {hostGeo === null ? (
+                  <div className="text-ink-400">looking up host geo…</div>
+                ) : !hostGeo.ok ? (
+                  <div className="text-amber-300">
+                    Host geoIP lookup failed ({hostGeo.error ?? "unknown"}). Phone will still work, but locale/timezone/GPS won&apos;t be spoofed.
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    <div><span className="text-ink-500">egress IP:</span> <span className="font-mono text-ink-100">{hostGeo.ip}</span></div>
+                    <div>
+                      <span className="text-ink-500">appears as:</span>{" "}
+                      <span className="text-ink-100">
+                        {hostGeo.city ? `${hostGeo.city}, ` : ""}
+                        {hostGeo.region ? `${hostGeo.region}, ` : ""}
+                        {hostGeo.country ?? "?"}
+                      </span>
+                    </div>
+                    <div><span className="text-ink-500">timezone:</span> {hostGeo.timezone ?? "?"}</div>
+                    <div><span className="text-ink-500">provider:</span> {hostGeo.provider ?? "?"}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            {proxyChoice !== "bypass" && (
               <div className="mt-3">
                 <label className="label">Routing mode</label>
                 <select

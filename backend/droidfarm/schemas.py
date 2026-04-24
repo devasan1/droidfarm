@@ -69,6 +69,11 @@ class PhoneIn(BaseModel):
     # (pick any free row), or neither (phone runs with no proxy).
     proxy_id: int | None = None
     auto_assign_proxy: bool = False
+    # When True, explicitly skip the proxy and use the host VM's own egress.
+    # Geo is seeded from the host's public-IP geoIP so locale/timezone/GPS
+    # stay consistent with what apps see at the network layer. Overrides
+    # proxy_mode to 'none' and ignores proxy_id.
+    bypass_ip: bool = False
     preinstall_apks: list[int] = Field(default_factory=list)
 
 

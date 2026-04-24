@@ -9,12 +9,33 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from droidfarm.core.driver import LaunchOptions, get_driver
+from droidfarm.core.geoip import lookup_host_geo
 from droidfarm.db import Phone, Proxy, session_scope
 from droidfarm.schemas import PhoneIn, PhoneOut, ProxyOut
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/phones", tags=["phones"])
+
+
+@router.get("/host-geo")
+def host_geo() -> dict:
+    """Preview what the VM's own public-IP geoIP looks like — useful for
+    the UI so users can see what "Bypass IP" will apply before they create
+    the phone."""
+    g = lookup_host_geo()
+    return {
+        "ok": g.ok,
+        "error": g.error,
+        "ip": g.ip,
+        "country": g.country,
+        "region": g.region,
+        "city": g.city,
+        "latitude": g.latitude,
+        "longitude": g.longitude,
+        "timezone": g.timezone,
+        "provider": g.provider,
+    }
 
 
 def _proxy_to_out(p: Proxy | None) -> ProxyOut | None:
@@ -179,12 +200,70 @@ def _stop_in_background(phone_id: int) -> None:
     threading.Thread(target=_worker, name=f"stop-phone-{phone_id}", daemon=True).start()
 
 
+def _geo_overrides_from_proxy(p: Proxy | None) -> dict:
+    if p is None:
+        return {}
+    return {
+        k: v
+        for k, v in {
+            "country": p.country,
+            "region": p.region,
+            "city": p.city,
+            "latitude": p.latitude,
+            "longitude": p.longitude,
+            "timezone": p.timezone,
+        }.items()
+        if v is not None
+    }
+
+
+def _geo_overrides_for_bypass() -> dict:
+    """Geo overrides for 'no proxy / bypass' mode — look up the host VM's
+    public IP and pin that country/city/timezone/GPS onto the phone so the
+    phone is consistent with the host's own egress."""
+    g = lookup_host_geo()
+    if not g.ok:
+        logger.warning("host geoIP lookup failed: %s", g.error)
+        return {}
+    return {
+        k: v
+        for k, v in {
+            "country": g.country,
+            "region": g.region,
+            "city": g.city,
+            "latitude": g.latitude,
+            "longitude": g.longitude,
+            "timezone": g.timezone,
+        }.items()
+        if v is not None
+    }
+
+
 @router.post("", response_model=PhoneOut, status_code=201)
 def create_phone(payload: PhoneIn) -> PhoneOut:
     with session_scope() as s:
         if s.execute(select(Phone).where(Phone.name == payload.name)).scalar_one_or_none():
             raise HTTPException(status_code=409, detail="phone name already exists")
-        proxy = _reserve_proxy(s, payload)
+
+        bypass = payload.proxy_mode == "none" or payload.bypass_ip
+        if bypass:
+            # Force no proxy for bypass mode regardless of any proxy_id.
+            proxy = None
+            proxy_mode = "none"
+        else:
+            proxy = _reserve_proxy(s, payload)
+            proxy_mode = payload.proxy_mode
+
+        # Seed the per-phone geo from the proxy (when present) or from the
+        # host VM (bypass). The geo-spoof step (next commit) reads this at
+        # boot and pushes locale/timezone/GPS into Android via adb.
+        if proxy is not None:
+            geo = _geo_overrides_from_proxy(proxy)
+        elif bypass:
+            geo = _geo_overrides_for_bypass()
+        else:
+            geo = {}
+
         phone = Phone(
             name=payload.name,
             device_profile=payload.device_profile,
@@ -194,10 +273,10 @@ def create_phone(payload: PhoneIn) -> PhoneOut:
             cpu=payload.cpu,
             ram_mb=payload.ram_mb,
             autostart=payload.autostart,
-            proxy_mode=payload.proxy_mode,
+            proxy_mode=proxy_mode,
             proxy=proxy,
             preinstall_apks=payload.preinstall_apks,
-            geo_overrides={},
+            geo_overrides=geo,
         )
         s.add(phone)
         s.flush()

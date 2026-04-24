@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Upload } from "lucide-react";
+import { Activity, Plus, Trash2, Upload } from "lucide-react";
 import { api } from "../lib/api";
 import type { Proxy } from "../lib/types";
 
@@ -63,9 +63,27 @@ export default function Proxies() {
             {proxies.length} total · {available} available · {proxies.length - available} in use
           </p>
         </div>
-        <button className="btn-primary" onClick={() => setImporting(true)}>
-          <Upload size={16} /> Import list
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="btn-secondary"
+            disabled={proxies.length === 0}
+            onClick={async () => {
+              setFeedback(null);
+              setError(null);
+              try {
+                const r = await api.checkAllProxies();
+                setFeedback(`Queued ${r.queued} proxy health-checks — results will appear as they come in.`);
+              } catch (e) {
+                setError(String(e));
+              }
+            }}
+          >
+            <Activity size={16} /> Check all
+          </button>
+          <button className="btn-primary" onClick={() => setImporting(true)}>
+            <Upload size={16} /> Import list
+          </button>
+        </div>
       </header>
 
       {feedback && (
@@ -105,7 +123,19 @@ export default function Proxies() {
             <tbody className="divide-y divide-ink-800">
               {proxies.map((p) => (
                 <tr key={p.id}>
-                  <td className="px-4 py-2 text-ink-100">{p.label || "—"}</td>
+                  <td className="px-4 py-2">
+                    <div className="text-ink-100">{p.label || "—"}</div>
+                    <div className="text-[11px] text-ink-500">
+                      {p.is_healthy ? (
+                        <span className="text-emerald-400">healthy</span>
+                      ) : p.last_error ? (
+                        <span className="text-red-400">{p.last_error.slice(0, 60)}</span>
+                      ) : (
+                        <span>unchecked</span>
+                      )}
+                      {p.latency_ms != null && ` · ${p.latency_ms} ms`}
+                    </div>
+                  </td>
                   <td className="px-4 py-2 text-ink-300">{p.scheme}</td>
                   <td className="px-4 py-2 font-mono text-xs text-ink-300">
                     {p.host}:{p.port}
@@ -120,6 +150,18 @@ export default function Proxies() {
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">
+                    <button
+                      className="btn-ghost"
+                      title="Health-check this proxy"
+                      onClick={async () => {
+                        try {
+                          await api.checkProxy(p.id);
+                          refresh();
+                        } catch (e) { setError(String(e)); }
+                      }}
+                    >
+                      <Activity size={14} />
+                    </button>
                     <button
                       className="btn-ghost text-red-300 hover:bg-red-500/10"
                       onClick={() => remove(p)}
