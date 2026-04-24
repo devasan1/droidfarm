@@ -157,6 +157,38 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
         ) : (
           <div className="text-ink-500">no proxy</div>
         )}
+        {(() => {
+          const g = phone.geo_overrides as {
+            country?: string; city?: string; locale?: string;
+            timezone?: string; latitude?: number; longitude?: number;
+          };
+          if (!g || (!g.country && !g.locale)) return null;
+          return (
+            <>
+              <div className="flex items-center gap-1">
+                <span className="text-ink-500">spoofed:</span>
+                <span className="text-ink-200">
+                  {g.city ? `${g.city}, ` : ""}{g.country ?? "?"}
+                </span>
+                {g.locale && <span className="chip">{g.locale}</span>}
+              </div>
+              {g.timezone && (
+                <div className="flex items-center gap-1">
+                  <span className="text-ink-500">tz:</span>
+                  <span className="text-ink-200">{g.timezone}</span>
+                </div>
+              )}
+              {g.latitude !== undefined && g.longitude !== undefined && (
+                <div className="flex items-center gap-1">
+                  <span className="text-ink-500">gps:</span>
+                  <span className="font-mono text-ink-200">
+                    {Number(g.latitude).toFixed(3)}, {Number(g.longitude).toFixed(3)}
+                  </span>
+                </div>
+              )}
+            </>
+          );
+        })()}
         <div className="flex items-center gap-1">
           <span className="text-ink-500">cpu/ram:</span>
           <span className="text-ink-200">{phone.cpu} vCPU · {phone.ram_mb} MB</span>

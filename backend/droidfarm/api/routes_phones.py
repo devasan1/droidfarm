@@ -11,6 +11,7 @@ from sqlalchemy import select
 from droidfarm.config import SETTINGS
 from droidfarm.core.driver import LaunchOptions, get_driver
 from droidfarm.core.geoip import lookup_host_geo
+from droidfarm.core.locales import locale_and_tz_for
 from droidfarm.core.templates import (
     ensure_templates,
     source_template_for,
@@ -179,6 +180,17 @@ def _start_in_background(phone_id: int) -> None:
                 driver.modify(name, opts)
 
             inst = driver.start(name, opts)
+
+            # Spoof locale / timezone / GPS so the phone matches the proxy
+            # country. Best-effort: a failure here doesn't crash the phone.
+            with session_scope() as s:
+                phone = s.get(Phone, phone_id)
+                go = dict(phone.geo_overrides or {}) if phone else {}
+            try:
+                _apply_geo_overrides(driver, name, inst, go)
+            except Exception as e:
+                logger.warning("geo-spoof for %s failed (phone still started): %s", name, e)
+
             with session_scope() as s:
                 phone = s.get(Phone, phone_id)
                 if phone is None:
@@ -217,10 +229,87 @@ def _stop_in_background(phone_id: int) -> None:
     threading.Thread(target=_worker, name=f"stop-phone-{phone_id}", daemon=True).start()
 
 
+def _apply_geo_overrides(driver, name: str, inst, go: dict) -> None:
+    """Push locale / timezone / GPS into a freshly-booted phone.
+
+    Strategy:
+      1. Ask the driver to set GPS natively (LDPlayer has ``locate``).
+         Mock driver just logs.
+      2. For locale + timezone + mock-location-app broadcast, we need
+         adb. On real LDPlayer, ``inst.adb_port`` is populated; we connect
+         to 127.0.0.1:<port>, wait for boot, then apply setprop commands.
+      3. If adb isn't available (e.g. MockDriver on Linux dev), skip the
+         adb step — GPS was already handled by the driver.
+    """
+    lat = go.get("latitude")
+    lon = go.get("longitude")
+    if lat is not None and lon is not None:
+        try:
+            driver.set_gps(name, float(lat), float(lon))
+        except Exception as e:
+            logger.warning("driver.set_gps(%s) failed: %s", name, e)
+
+    if not getattr(driver, "supports_adb", True):
+        return  # e.g. MockDriver — skip adb steps on dev VMs
+
+    port = getattr(inst, "adb_port", None)
+    if port is None:
+        return  # driver hasn't surfaced an adb port yet
+
+    # Lazy import so the adb module doesn't need to load on CI without adb.
+    from droidfarm.core import adb
+
+    serial = f"127.0.0.1:{port}"
+    try:
+        adb.connect(serial)
+    except Exception as e:
+        logger.warning("adb connect %s failed: %s", serial, e)
+        return
+
+    if not adb.wait_for_boot(serial, timeout_s=180):
+        logger.warning("phone %s didn't finish booting within 180s", name)
+        return
+
+    locale = go.get("locale")
+    tz = go.get("timezone")
+    if locale:
+        try:
+            adb.set_locale(serial, locale)
+        except Exception as e:
+            logger.warning("set_locale(%s, %s) failed: %s", serial, locale, e)
+    if tz:
+        try:
+            adb.set_timezone(serial, tz)
+        except Exception as e:
+            logger.warning("set_timezone(%s, %s) failed: %s", serial, tz, e)
+    if lat is not None and lon is not None:
+        try:
+            adb.set_mock_location(serial, float(lat), float(lon))
+        except Exception as e:
+            logger.warning("set_mock_location failed: %s", e)
+
+
+def _fill_locale_defaults(d: dict) -> dict:
+    """If the caller gave us a country but no locale/timezone, fill in
+    sensible defaults so 'feels like that city' is actually true.
+
+    Timezone comes from the proxy's own tz field first (more accurate),
+    then falls back to the country-default table. Locale is always
+    country-derived since proxies don't expose one.
+    """
+    country = d.get("country")
+    loc, tz = locale_and_tz_for(country) if country else (None, None)
+    if loc and not d.get("locale"):
+        d["locale"] = loc
+    if tz and not d.get("timezone"):
+        d["timezone"] = tz
+    return d
+
+
 def _geo_overrides_from_proxy(p: Proxy | None) -> dict:
     if p is None:
         return {}
-    return {
+    d = {
         k: v
         for k, v in {
             "country": p.country,
@@ -232,6 +321,7 @@ def _geo_overrides_from_proxy(p: Proxy | None) -> dict:
         }.items()
         if v is not None
     }
+    return _fill_locale_defaults(d)
 
 
 def _geo_overrides_for_bypass() -> dict:
@@ -242,7 +332,7 @@ def _geo_overrides_for_bypass() -> dict:
     if not g.ok:
         logger.warning("host geoIP lookup failed: %s", g.error)
         return {}
-    return {
+    d = {
         k: v
         for k, v in {
             "country": g.country,
@@ -254,6 +344,7 @@ def _geo_overrides_for_bypass() -> dict:
         }.items()
         if v is not None
     }
+    return _fill_locale_defaults(d)
 
 
 @router.post("", response_model=PhoneOut, status_code=201)

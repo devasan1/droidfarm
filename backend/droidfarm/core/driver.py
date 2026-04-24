@@ -66,6 +66,11 @@ TEMPLATE_CONFIGURED_NAME = "_droidfarm_template_configured"
 class Driver(abc.ABC):
     """Contract every emulator driver must satisfy."""
 
+    # True when the phones this driver boots are reachable via adb on
+    # their ``adb_port``. MockDriver sets this to False so geo-spoof, APK
+    # install, etc. degrade gracefully on dev VMs without adb.
+    supports_adb: bool = True
+
     @abc.abstractmethod
     def list(self) -> list[EmulatorInstance]: ...
 
@@ -95,6 +100,10 @@ class Driver(abc.ABC):
 
     @abc.abstractmethod
     def install_apk(self, name: str, apk_path: Path) -> None: ...
+
+    def set_gps(self, name: str, latitude: float, longitude: float) -> None:
+        """Best-effort GPS spoof. Default no-op; real drivers override."""
+        return
 
 
 # ---------- LDPlayer (real Windows driver) ----------
@@ -217,12 +226,23 @@ class LDPlayerDriver(Driver):
     def install_apk(self, name: str, apk_path: Path) -> None:
         self._run("installapp", "--name", name, "--filename", str(apk_path), timeout=600)
 
+    def set_gps(self, name: str, latitude: float, longitude: float) -> None:
+        """Push a fake GPS fix directly to the LDPlayer GPS provider.
+
+        ldconsole has native support for this: ``locate --name X --LLI lng,lat``.
+        Apps consuming Fused Location / Google Play Services pick it up
+        without needing a mock-location app.
+        """
+        self._run("locate", "--name", name, "--LLI", f"{longitude},{latitude}")
+
 
 # ---------- Mock driver (Linux dev / CI) ----------
 
 class MockDriver(Driver):
     """Keeps an in-memory registry of fake phones so the API works end-to-end
     on machines without LDPlayer (Linux dev boxes, CI)."""
+
+    supports_adb: bool = False
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -296,6 +316,9 @@ class MockDriver(Driver):
 
     def install_apk(self, name: str, apk_path: Path) -> None:
         logger.info("[mock] install %s on %s", apk_path, name)
+
+    def set_gps(self, name: str, latitude: float, longitude: float) -> None:
+        logger.info("[mock] set_gps %s lat=%s lon=%s", name, latitude, longitude)
 
 
 # ---------- Selection ----------

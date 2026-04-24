@@ -81,7 +81,38 @@ def set_http_proxy(serial: str, host_port: str | None) -> None:
 
 
 def set_mock_location(serial: str, lat: float, lon: float) -> None:
-    """Requires the phone to have a mock-location app installed (we ship one
-    during the first-run APK preinstall list)."""
+    """Enable mock-location + broadcast coordinates for apps that query
+    LocationManager directly (secondary layer — the LDPlayer driver's
+    native `locate` command is the primary GPS source)."""
+    # Grant mock-location permission to the shell so the next line works
+    # on stock AOSP builds. Some emulators expose this only via 'su'.
+    try:
+        shell(serial, "appops", "set", "com.android.shell",
+              "android:mock_location", "allow")
+    except ADBError as e:
+        logger.debug("appops set mock_location failed (ok on LDPlayer): %s", e)
+    # Modern API (cmd location) — available on Android 9+
+    try:
+        shell(serial, "cmd", "location", "set-location-enabled", "true")
+    except ADBError:
+        pass
+    # Broadcast for a bundled mock-location helper app (we auto-install
+    # one during the configured-template prep). Safe no-op if absent.
     shell(serial, "am", "broadcast", "-a", "com.droidfarm.SET_LOCATION",
           "--ef", "lat", str(lat), "--ef", "lon", str(lon))
+
+
+def wait_for_boot(serial: str, timeout_s: float = 180.0) -> bool:
+    """Block until ``sys.boot_completed=1``. Returns True on success."""
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            out = shell(serial, "getprop", "sys.boot_completed", timeout=10).strip()
+            if out == "1":
+                return True
+        except ADBError:
+            pass
+        time.sleep(3)
+    return False
