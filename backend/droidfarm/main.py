@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import logging
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from droidfarm import __version__
 from droidfarm.api.routes_apks import router as apks_router
@@ -39,6 +43,39 @@ def create_app() -> FastAPI:
     app.include_router(phones_router)
     app.include_router(proxies_router)
     app.include_router(apks_router)
+
+    # Serve the built React frontend at / (production bundle). The bat
+    # launcher runs `npm run build` in frontend/ before booting the backend,
+    # so frontend/dist is expected to exist. When it doesn't (e.g. pure
+    # backend dev), we return a helpful placeholder so health still works.
+    dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if dist.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(dist / "assets")),
+            name="assets",
+        )
+
+        @app.get("/", include_in_schema=False)
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def _spa(full_path: str = "") -> FileResponse:
+            # SPA fallback — every non-API path returns index.html so
+            # react-router can do its own routing client-side.
+            if full_path.startswith("api/"):
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404)
+            return FileResponse(dist / "index.html")
+    else:
+
+        @app.get("/", include_in_schema=False)
+        def _placeholder() -> dict:
+            return {
+                "ok": True,
+                "message": (
+                    "frontend/dist not built yet. Run `npm run build` in "
+                    "frontend/, or use DroidFarm.bat which does it for you."
+                ),
+            }
 
     @app.on_event("startup")
     def _startup() -> None:
