@@ -116,6 +116,12 @@ class Phone(Base):
     # APKs to install as soon as the phone boots for the first time.
     preinstall_apks: Mapped[list[str]] = mapped_column(JSON, default=list)
 
+    # Per-phone hardware fingerprint (IMEI, Android ID, MAC, build props,
+    # GSF ID, WebView UA). Generated at create-time and re-applied on
+    # every boot so clones of the same template don't look identical to
+    # apps. See core/fingerprint.py.
+    fingerprint: Mapped[dict] = mapped_column(JSON, default=dict)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     last_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -165,6 +171,10 @@ def _migrate_in_place() -> None:
     with _engine.begin() as conn:
         if "deleted_at" not in cols:
             conn.execute(text("ALTER TABLE phones ADD COLUMN deleted_at DATETIME"))
+        if "fingerprint" not in cols:
+            conn.execute(
+                text("ALTER TABLE phones ADD COLUMN fingerprint JSON DEFAULT '{}'")
+            )
 
 
 @contextmanager

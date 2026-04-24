@@ -109,6 +109,7 @@ class PhoneOut(BaseModel):
     last_started_at: datetime | None
     last_error: str | None
     deleted_at: datetime | None = None
+    fingerprint: dict = {}
 
 
 class ApkOut(BaseModel):

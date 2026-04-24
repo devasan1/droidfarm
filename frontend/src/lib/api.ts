@@ -39,6 +39,17 @@ export const api = {
   startPhone: (id: number) => req<Phone>(`/api/phones/${id}/start`, { method: "POST" }),
   stopPhone: (id: number) => req<Phone>(`/api/phones/${id}/stop`, { method: "POST" }),
   wipePhone: (id: number) => req<Phone>(`/api/phones/${id}/wipe`, { method: "POST" }),
+  regenerateFingerprint: (id: number, device_profile?: string) =>
+    req<Phone>(
+      `/api/phones/${id}/regenerate-fingerprint${
+        device_profile ? `?device_profile=${encodeURIComponent(device_profile)}` : ""
+      }`,
+      { method: "POST" },
+    ),
+  deviceProfiles: () =>
+    req<{ manufacturer: string; model: string; android_release: string }[]>(
+      "/api/phones/device-profiles",
+    ),
   screenshotUrl: (id: number, cacheBust?: number) =>
     `/api/phones/${id}/screenshot${cacheBust ? `?t=${cacheBust}` : ""}`,
   tapPhone: (id: number, x: number, y: number) =>

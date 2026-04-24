@@ -289,6 +289,26 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
           <span className="text-ink-500">cpu/ram:</span>
           <span className="text-ink-200">{phone.cpu} vCPU · {phone.ram_mb} MB</span>
         </div>
+        {(() => {
+          const fp = phone.fingerprint as {
+            manufacturer?: string; model?: string; imei?: string;
+            android_id?: string;
+          };
+          if (!fp || !fp.model) return null;
+          const imeiShort = fp.imei ? `${fp.imei.slice(0, 4)}…${fp.imei.slice(-3)}` : "—";
+          return (
+            <div
+              className="flex items-center gap-1"
+              title={`IMEI ${fp.imei ?? "?"} · Android ID ${fp.android_id ?? "?"}`}
+            >
+              <span className="text-ink-500">device:</span>
+              <span className="text-ink-200">
+                {fp.manufacturer} {fp.model}
+              </span>
+              <span className="chip">IMEI {imeiShort}</span>
+            </div>
+          );
+        })()}
       </div>
 
       <div className="flex items-center gap-2 pt-1">

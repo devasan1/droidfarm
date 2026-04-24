@@ -32,6 +32,38 @@ def _now_utc() -> datetime:
 router = APIRouter(prefix="/api/phones", tags=["phones"])
 
 
+@router.get("/device-profiles")
+def list_device_profiles_endpoint() -> list[dict]:
+    """Catalogue of hardware profiles the fingerprint generator picks
+    from (Pixel 7, Galaxy S23, etc.). Exposed so the UI can let the
+    user force a specific device type if they want."""
+    from droidfarm.core.fingerprint import list_device_profiles
+
+    return list_device_profiles()
+
+
+@router.post("/{phone_id}/regenerate-fingerprint", response_model=PhoneOut)
+def regenerate_fingerprint(phone_id: int, device_profile: str | None = None) -> PhoneOut:
+    """Spin a fresh hardware fingerprint for this phone.
+
+    The new IMEI / Android ID / MAC / model take effect on the phone's
+    next start — we don't forcibly re-apply them on a running phone
+    because apps that have already cached the identifiers would see the
+    change mid-session and often flag it.
+
+    Pass ``?device_profile=Pixel%207`` to pin the hardware model;
+    otherwise a random one is chosen from the catalogue.
+    """
+    from droidfarm.core.fingerprint import generate_fingerprint
+
+    with session_scope() as s:
+        phone = s.get(Phone, phone_id)
+        if phone is None or phone.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="phone not found")
+        phone.fingerprint = generate_fingerprint(device_profile=device_profile)
+        return _phone_to_out(phone)
+
+
 @router.get("/geo-countries")
 def list_geo_countries() -> list[str]:
     """Countries we have curated city coordinates for (for Bypass-IP
@@ -126,6 +158,7 @@ def _phone_to_out(phone: Phone) -> PhoneOut:
         last_started_at=phone.last_started_at,
         last_error=phone.last_error,
         deleted_at=phone.deleted_at,
+        fingerprint=phone.fingerprint or {},
     )
 
 
@@ -168,9 +201,15 @@ def _launch_opts(phone: Phone) -> LaunchOptions:
     go = phone.geo_overrides or {}
     opts.locale = go.get("locale")
     opts.timezone = go.get("timezone")
-    opts.imei = go.get("imei")
-    opts.manufacturer = go.get("manufacturer")
-    opts.model = go.get("model")
+    # Prefer the per-phone fingerprint (generated at create-time) over
+    # anything in geo_overrides — the fingerprint is the canonical source
+    # for device identity.
+    fp = phone.fingerprint or {}
+    opts.imei = fp.get("imei") or go.get("imei")
+    opts.manufacturer = fp.get("manufacturer") or go.get("manufacturer")
+    opts.model = fp.get("model") or go.get("model")
+    opts.android_id = fp.get("android_id") or go.get("android_id")
+    opts.mac = fp.get("mac_wifi") or go.get("mac")
     return opts
 
 
@@ -216,10 +255,18 @@ def _start_in_background(phone_id: int) -> None:
             with session_scope() as s:
                 phone = s.get(Phone, phone_id)
                 go = dict(phone.geo_overrides or {}) if phone else {}
+                fp = dict(phone.fingerprint or {}) if phone else {}
             try:
                 _apply_geo_overrides(driver, name, inst, go)
             except Exception as e:
                 logger.warning("geo-spoof for %s failed (phone still started): %s", name, e)
+            try:
+                _apply_fingerprint(driver, name, inst, fp)
+            except Exception as e:
+                logger.warning(
+                    "fingerprint apply for %s failed (phone still started): %s",
+                    name, e,
+                )
 
             with session_scope() as s:
                 phone = s.get(Phone, phone_id)
@@ -317,6 +364,75 @@ def _apply_geo_overrides(driver, name: str, inst, go: dict) -> None:
             adb.set_mock_location(serial, float(lat), float(lon))
         except Exception as e:
             logger.warning("set_mock_location failed: %s", e)
+
+
+def _apply_fingerprint(driver, name: str, inst, fp: dict) -> None:
+    """Push the per-phone hardware fingerprint into the freshly-booted
+    phone. IMEI + manufacturer + model + MAC are already handled
+    natively by LDPlayer's ``modify`` step (see ``_launch_opts``), so
+    this path concentrates on the bits adb can influence:
+
+    - ``settings.secure.android_id`` — primary cross-install device ID
+    - ``setprop ro.build.*`` / ``ro.product.*`` — best-effort on rooted
+      emulators; silently no-ops on stock builds (read-only sysprop)
+    - WebView UA: written to ``/data/data/<webview>/shared_prefs`` is
+      fragile; instead we setprop ``ro.com.google.clientid`` and
+      ``persist.sys.webview.useragent`` which WebView respects on
+      Android 12+ when the ``use.custom.useragent`` prop is set.
+
+    Any failure is logged and skipped — a stock-build phone will still
+    run fine, it'll just keep the LDPlayer default sysprops.
+    """
+    if not getattr(driver, "supports_adb", True):
+        return
+    port = getattr(inst, "adb_port", None)
+    if port is None:
+        return
+
+    from droidfarm.core import adb
+
+    serial = f"127.0.0.1:{port}"
+    try:
+        adb.connect(serial)
+    except Exception as e:
+        logger.warning("adb connect %s failed (fingerprint): %s", serial, e)
+        return
+
+    android_id = fp.get("android_id")
+    if android_id:
+        try:
+            adb.shell(
+                serial, "settings", "put", "secure", "android_id", str(android_id),
+            )
+        except Exception as e:
+            logger.warning("set android_id(%s) failed: %s", android_id, e)
+
+    # Best-effort build-prop overrides. These only stick on LDPlayer's
+    # rooted shell; stock AOSP AVDs will reject them silently.
+    build_props = {
+        "ro.product.manufacturer": fp.get("manufacturer"),
+        "ro.product.brand": fp.get("brand"),
+        "ro.product.model": fp.get("model"),
+        "ro.product.device": fp.get("device"),
+        "ro.product.name": fp.get("product"),
+        "ro.build.id": fp.get("build_id"),
+        "ro.build.version.release": fp.get("android_release"),
+        "ro.serialno": fp.get("serial_no"),
+    }
+    for key, value in build_props.items():
+        if not value:
+            continue
+        try:
+            adb.shell(serial, "setprop", key, str(value))
+        except Exception as e:
+            logger.debug("setprop %s=%s failed (ok on stock AOSP): %s", key, value, e)
+
+    ua = fp.get("webview_ua")
+    if ua:
+        try:
+            adb.shell(serial, "setprop", "persist.sys.webview.useragent", ua)
+        except Exception as e:
+            logger.debug("setprop webview UA failed: %s", e)
 
 
 def _fill_locale_defaults(d: dict) -> dict:
@@ -443,6 +559,14 @@ def create_phone(payload: PhoneIn) -> PhoneOut:
         else:
             geo = {}
 
+        # Per-phone hardware fingerprint (IMEI, Android ID, MAC, build
+        # props, GSF ID, WebView UA). Every clone of the same template
+        # otherwise looks identical to apps and gets flagged as a
+        # duplicate account.
+        from droidfarm.core.fingerprint import generate_fingerprint
+
+        fp = generate_fingerprint()
+
         phone = Phone(
             name=payload.name,
             device_profile=payload.device_profile,
@@ -457,6 +581,7 @@ def create_phone(payload: PhoneIn) -> PhoneOut:
             proxy=proxy,
             preinstall_apks=payload.preinstall_apks,
             geo_overrides=geo,
+            fingerprint=fp,
         )
         s.add(phone)
         s.flush()

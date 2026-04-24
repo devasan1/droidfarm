@@ -58,6 +58,7 @@ export interface Phone {
   last_started_at: string | null;
   last_error: string | null;
   deleted_at: string | null;
+  fingerprint: Record<string, unknown>;
 }
 
 export interface PhoneIn {
