@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from droidfarm import __version__
 from droidfarm.api.routes_apks import router as apks_router
+from droidfarm.api.routes_farm import router as farm_router
 from droidfarm.api.routes_health import router as health_router
 from droidfarm.api.routes_phones import router as phones_router
 from droidfarm.api.routes_proxies import router as proxies_router
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(phones_router)
     app.include_router(proxies_router)
     app.include_router(apks_router)
+    app.include_router(farm_router)
 
     # Serve the built React frontend at / (production bundle). The bat/
     # shell launcher runs `npm run build` in frontend/ before booting

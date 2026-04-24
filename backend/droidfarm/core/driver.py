@@ -105,6 +105,11 @@ class Driver(abc.ABC):
         """Best-effort GPS spoof. Default no-op; real drivers override."""
         return
 
+    def backup_instance(self, name: str) -> Path | None:
+        """Produce a portable backup (e.g. .ldbk) of the phone's disk
+        so the farm export can carry it. Default: not supported."""
+        return None
+
     def screencap(self, name: str, adb_port: int | None) -> bytes:
         """Return a PNG of the phone's current framebuffer, or raise if
         unavailable (not running, driver can't). Override in subclasses."""

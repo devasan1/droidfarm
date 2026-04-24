@@ -6,6 +6,7 @@ import Phones from "./pages/Phones";
 import Proxies from "./pages/Proxies";
 import Apks from "./pages/Apks";
 import Trash from "./pages/Trash";
+import Settings from "./pages/Settings";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -18,6 +19,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="proxies" element={<Proxies />} />
           <Route path="apks" element={<Apks />} />
           <Route path="trash" element={<Trash />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>
