@@ -11,6 +11,8 @@ export default function Phones() {
   const [phones, setPhones] = useState<Phone[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   async function refresh() {
     try {
@@ -26,6 +28,56 @@ export default function Phones() {
     return () => clearInterval(t);
   }, []);
 
+  // Drop selected ids that no longer refer to live phones.
+  useEffect(() => {
+    setSelected((prev) => {
+      const live = new Set(phones.map((p) => p.id));
+      let changed = false;
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (live.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [phones]);
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function selectAll() {
+    setSelected(new Set(phones.map((p) => p.id)));
+  }
+  function clearSel() {
+    setSelected(new Set());
+  }
+
+  async function bulk(
+    fn: (id: number) => Promise<unknown>,
+    label: string,
+  ) {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    setError(null);
+    const errors: string[] = [];
+    for (const id of ids) {
+      try {
+        await fn(id);
+      } catch (e) {
+        errors.push(`${id}: ${String(e)}`);
+      }
+    }
+    setBulkBusy(false);
+    if (errors.length) setError(`${label} partial failure: ${errors.join("; ")}`);
+    refresh();
+  }
+
   return (
     <div className="p-8">
       <header className="mb-6 flex items-center justify-between">
@@ -33,12 +85,82 @@ export default function Phones() {
           <h1 className="text-2xl font-semibold text-ink-50">Phones</h1>
           <p className="text-sm text-ink-400">
             {phones.length} phone{phones.length === 1 ? "" : "s"} · {phones.filter((p) => p.status === "running").length} running
+            {selected.size > 0 && (
+              <span className="ml-2 text-indigo-300">· {selected.size} selected</span>
+            )}
           </p>
         </div>
-        <button className="btn-primary" onClick={() => setShowAdd(true)}>
-          <Plus size={16} /> Add phone
-        </button>
+        <div className="flex items-center gap-2">
+          {phones.length > 0 && (
+            <>
+              <button className="btn-ghost" onClick={selectAll} title="Select all">
+                Select all
+              </button>
+              {selected.size > 0 && (
+                <button className="btn-ghost" onClick={clearSel}>Clear</button>
+              )}
+            </>
+          )}
+          <button className="btn-primary" onClick={() => setShowAdd(true)}>
+            <Plus size={16} /> Add phone
+          </button>
+        </div>
       </header>
+
+      {selected.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-indigo-500/30 bg-indigo-500/10 p-3 text-sm text-ink-100">
+          <span className="text-ink-200">
+            {selected.size} phone{selected.size === 1 ? "" : "s"} selected —
+          </span>
+          <button
+            className="btn-secondary"
+            disabled={bulkBusy}
+            onClick={() => bulk(api.startPhone, "start")}
+          >
+            <Play size={14} /> Start
+          </button>
+          <button
+            className="btn-secondary"
+            disabled={bulkBusy}
+            onClick={() => bulk(api.stopPhone, "stop")}
+          >
+            <Square size={14} /> Stop
+          </button>
+          <button
+            className="btn-secondary"
+            disabled={bulkBusy}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Wipe ${selected.size} phone${
+                    selected.size === 1 ? "" : "s"
+                  }? Each will be re-cloned from its template (installed apps + data erased). Proxies + geo + fingerprint preserved.`,
+                )
+              )
+                bulk(api.wipePhone, "wipe");
+            }}
+          >
+            <RotateCcw size={14} /> Wipe
+          </button>
+          <button
+            className="btn-secondary"
+            disabled={bulkBusy}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Move ${selected.size} phone${
+                    selected.size === 1 ? "" : "s"
+                  } to Trash? Data preserved; can be restored from the Trash page.`,
+                )
+              )
+                bulk(api.deletePhone, "delete");
+            }}
+          >
+            <Trash2 size={14} /> Trash
+          </button>
+          {bulkBusy && <span className="text-xs text-ink-400">working…</span>}
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
@@ -51,7 +173,13 @@ export default function Phones() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {phones.map((p) => (
-            <PhoneTile key={p.id} phone={p} onChange={refresh} />
+            <PhoneTile
+              key={p.id}
+              phone={p}
+              onChange={refresh}
+              selected={selected.has(p.id)}
+              onToggleSelect={() => toggle(p.id)}
+            />
           ))}
         </div>
       )}
@@ -97,7 +225,17 @@ function statusColor(s: Phone["status"]): string {
   }
 }
 
-function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) {
+function PhoneTile({
+  phone,
+  onChange,
+  selected,
+  onToggleSelect,
+}: {
+  phone: Phone;
+  onChange: () => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+}) {
   const [busy, setBusy] = useState<"start" | "stop" | "wipe" | "delete" | "install" | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [installMsg, setInstallMsg] = useState<string | null>(null);
@@ -157,8 +295,9 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
   return (
     <div
       className={clsx(
-        "card flex flex-col gap-3 p-4 transition-colors",
+        "card relative flex flex-col gap-3 p-4 transition-colors",
         dragOver && "border-emerald-500 ring-2 ring-emerald-500/40",
+        selected && "border-indigo-500 ring-2 ring-indigo-500/40",
       )}
       onDragOver={(e) => {
         if (Array.from(e.dataTransfer.items).some((i) => i.kind === "file")) {
@@ -174,10 +313,22 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
       }}
     >
       <div className="flex items-center justify-between gap-2">
-        <div>
-          <div className="font-medium text-ink-50">{phone.name}</div>
-          <div className="text-xs text-ink-400">
-            {phone.device_profile} · Android {phone.android_version} · {phone.resolution}
+        <div className="flex items-start gap-2">
+          {onToggleSelect && (
+            <input
+              type="checkbox"
+              checked={!!selected}
+              onChange={onToggleSelect}
+              className="mt-1 h-4 w-4 cursor-pointer accent-indigo-500"
+              title="Select phone for bulk actions"
+              aria-label={`Select ${phone.name}`}
+            />
+          )}
+          <div>
+            <div className="font-medium text-ink-50">{phone.name}</div>
+            <div className="text-xs text-ink-400">
+              {phone.device_profile} · Android {phone.android_version} · {phone.resolution}
+            </div>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
