@@ -49,6 +49,7 @@ export interface Phone {
   ram_mb: number;
   status: PhoneStatus;
   autostart: boolean;
+  show_setup_wizard: boolean;
   proxy_mode: ProxyMode;
   proxy: Proxy | null;
   geo_overrides: Record<string, unknown>;
@@ -71,6 +72,7 @@ export interface PhoneIn {
   proxy_id?: number | null;
   auto_assign_proxy?: boolean;
   bypass_ip?: boolean;
+  show_setup_wizard?: boolean;
   preinstall_apks?: number[];
 }
 

@@ -91,6 +91,11 @@ class Phone(Base):
     status: Mapped[str] = mapped_column(String, default="stopped", nullable=False)
     # stopped | starting | running | stopping | crashed
     autostart: Mapped[bool] = mapped_column(Boolean, default=True)
+    # When True, clone from the _droidfarm_template_factory (shows first-boot
+    # setup wizard). When False (default), clone from _droidfarm_template_configured
+    # (already past setup). In both cases the phone is data-clean on every
+    # wipe / restart-with-wipe.
+    show_setup_wizard: Mapped[bool] = mapped_column(Boolean, default=False)
     # Whether tun2socks / system proxy should be applied on boot.
     proxy_mode: Mapped[str] = mapped_column(String, default="tun2socks", nullable=False)
     # tun2socks | system-http | none

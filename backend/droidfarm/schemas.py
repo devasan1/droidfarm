@@ -64,6 +64,11 @@ class PhoneIn(BaseModel):
     cpu: int = 2
     ram_mb: int = 4096
     autostart: bool = True
+    # False (default) → clone from the 'configured' template; phone boots
+    # straight to launcher with the setup wizard already dismissed.
+    # True → clone from the 'factory' template; phone shows the usual
+    # Android first-boot experience. Either way the clone has no user data.
+    show_setup_wizard: bool = False
     proxy_mode: ProxyMode = "tun2socks"
     # Pass exactly one of: proxy_id (pick a specific row), auto_assign_proxy=True
     # (pick any free row), or neither (phone runs with no proxy).
@@ -89,6 +94,7 @@ class PhoneOut(BaseModel):
     ram_mb: int
     status: PhoneStatus
     autostart: bool
+    show_setup_wizard: bool
     proxy_mode: ProxyMode
     proxy: ProxyOut | None
     geo_overrides: dict

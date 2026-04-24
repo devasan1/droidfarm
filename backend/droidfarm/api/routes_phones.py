@@ -8,8 +8,14 @@ import threading
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
+from droidfarm.config import SETTINGS
 from droidfarm.core.driver import LaunchOptions, get_driver
 from droidfarm.core.geoip import lookup_host_geo
+from droidfarm.core.templates import (
+    ensure_templates,
+    source_template_for,
+    wipe_from_template,
+)
 from droidfarm.db import Phone, Proxy, session_scope
 from droidfarm.schemas import PhoneIn, PhoneOut, ProxyOut
 
@@ -81,6 +87,7 @@ def _phone_to_out(phone: Phone) -> PhoneOut:
         ram_mb=phone.ram_mb,
         status=phone.status,  # type: ignore[arg-type]
         autostart=phone.autostart,
+        show_setup_wizard=phone.show_setup_wizard,
         proxy_mode=phone.proxy_mode,  # type: ignore[arg-type]
         proxy=_proxy_to_out(phone.proxy),
         geo_overrides=phone.geo_overrides or {},
@@ -153,11 +160,21 @@ def _start_in_background(phone_id: int) -> None:
                 name = phone.name
                 opts = _launch_opts(phone)
 
-            # Ensure the LDPlayer instance exists (create is idempotent for MockDriver;
-            # real LDPlayer will error if you add an existing name, so we check first).
+            # Ensure the LDPlayer instance exists. New phones are cloned from
+            # one of the prepared templates — that keeps them data-clean +
+            # (optionally) past the first-boot setup wizard.
             existing = next((i for i in driver.list() if i.name == name), None)
             if existing is None:
-                driver.create(name, opts)
+                # Make sure both templates are prepared; skipped after the first run.
+                try:
+                    ensure_templates(driver, SETTINGS.data_dir)
+                except Exception as e:
+                    logger.warning("template preparation failed: %s", e)
+                with session_scope() as s:
+                    p2 = s.get(Phone, phone_id)
+                    skip = not (p2.show_setup_wizard if p2 else False)
+                source = source_template_for(skip_setup=skip)
+                driver.clone(name, source, opts)
             else:
                 driver.modify(name, opts)
 
@@ -273,6 +290,7 @@ def create_phone(payload: PhoneIn) -> PhoneOut:
             cpu=payload.cpu,
             ram_mb=payload.ram_mb,
             autostart=payload.autostart,
+            show_setup_wizard=payload.show_setup_wizard,
             proxy_mode=proxy_mode,
             proxy=proxy,
             preinstall_apks=payload.preinstall_apks,
@@ -365,4 +383,56 @@ def stop_phone(phone_id: int) -> PhoneOut:
         s.flush()
         out = _phone_to_out(phone)
     _stop_in_background(phone_id)
+    return out
+
+
+def _wipe_in_background(phone_id: int) -> None:
+    """Destroy + re-clone the phone from its source template, preserving
+    LaunchOptions so IMEI/resolution/etc. survive the wipe."""
+
+    def _worker() -> None:
+        driver = get_driver()
+        try:
+            with session_scope() as s:
+                phone = s.get(Phone, phone_id)
+                if phone is None:
+                    return
+                name = phone.name
+                skip = not phone.show_setup_wizard
+                opts = _launch_opts(phone)
+            source = source_template_for(skip_setup=skip)
+            wipe_from_template(driver, name, source, opts)
+            inst = driver.start(name, opts)
+            with session_scope() as s:
+                phone = s.get(Phone, phone_id)
+                if phone is not None:
+                    phone.status = "running"
+                    phone.ldplayer_index = inst.index
+                    phone.last_error = None
+        except Exception as e:
+            logger.exception("wipe phone %s failed", phone_id)
+            with session_scope() as s:
+                phone = s.get(Phone, phone_id)
+                if phone is not None:
+                    phone.status = "crashed"
+                    phone.last_error = str(e)
+
+    threading.Thread(target=_worker, name=f"wipe-phone-{phone_id}", daemon=True).start()
+
+
+@router.post("/{phone_id}/wipe", response_model=PhoneOut)
+def wipe_phone(phone_id: int) -> PhoneOut:
+    """Factory-reset the phone — destroys the LDPlayer instance and
+    re-clones from its source template (factory or configured). Returns
+    immediately with status='starting'; the actual wipe runs in the
+    background and the UI picks up the state transition via its poll."""
+    with session_scope() as s:
+        phone = s.get(Phone, phone_id)
+        if phone is None:
+            raise HTTPException(status_code=404, detail="phone not found")
+        phone.status = "starting"
+        phone.last_error = None
+        s.flush()
+        out = _phone_to_out(phone)
+    _wipe_in_background(phone_id)
     return out

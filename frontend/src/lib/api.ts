@@ -35,6 +35,7 @@ export const api = {
   deletePhone: (id: number) => req<void>(`/api/phones/${id}`, { method: "DELETE" }),
   startPhone: (id: number) => req<Phone>(`/api/phones/${id}/start`, { method: "POST" }),
   stopPhone: (id: number) => req<Phone>(`/api/phones/${id}/stop`, { method: "POST" }),
+  wipePhone: (id: number) => req<Phone>(`/api/phones/${id}/wipe`, { method: "POST" }),
 
   listProxies: () => req<Proxy[]>("/api/proxies"),
   createProxy: (body: ProxyIn) =>

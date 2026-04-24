@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Play, Plus, Square, Trash2 } from "lucide-react";
+import { Play, Plus, RotateCcw, Square, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { api } from "../lib/api";
 import type { Phone } from "../lib/types";
@@ -96,17 +96,19 @@ function statusColor(s: Phone["status"]): string {
 }
 
 function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) {
-  const [busy, setBusy] = useState<"start" | "stop" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"start" | "stop" | "wipe" | "delete" | null>(null);
 
-  async function act(kind: "start" | "stop" | "delete") {
+  async function act(kind: "start" | "stop" | "wipe" | "delete") {
+    if (kind === "wipe" && !window.confirm(
+      `Wipe ${phone.name}? Data + cache will be erased and the phone will be re-cloned from the ${phone.show_setup_wizard ? "factory" : "configured"} template (~20s).`,
+    )) return;
+    if (kind === "delete" && !window.confirm(`Delete ${phone.name} and free its proxy?`)) return;
     setBusy(kind);
     try {
       if (kind === "start") await api.startPhone(phone.id);
       if (kind === "stop") await api.stopPhone(phone.id);
-      if (kind === "delete") {
-        if (!window.confirm(`Delete ${phone.name} and free its proxy?`)) return;
-        await api.deletePhone(phone.id);
-      }
+      if (kind === "wipe") await api.wipePhone(phone.id);
+      if (kind === "delete") await api.deletePhone(phone.id);
       onChange();
     } finally {
       setBusy(null);
@@ -136,6 +138,12 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
       </div>
 
       <div className="space-y-1 text-xs text-ink-400">
+        <div className="flex items-center gap-1">
+          <span className="text-ink-500">boot:</span>
+          <span className="text-ink-200">
+            {phone.show_setup_wizard ? "factory (setup wizard)" : "configured (skips wizard)"}
+          </span>
+        </div>
         {phone.proxy ? (
           <div className="flex items-center gap-1">
             <span className="text-ink-500">proxy:</span>
@@ -165,6 +173,14 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
             <Play size={14} /> Start
           </button>
         )}
+        <button
+          className="btn-ghost"
+          title="Wipe + re-clone from template"
+          disabled={busy !== null}
+          onClick={() => act("wipe")}
+        >
+          <RotateCcw size={14} />
+        </button>
         <button
           className="btn-ghost ml-auto text-red-300 hover:bg-red-500/10 hover:text-red-200"
           disabled={busy !== null}

@@ -23,6 +23,7 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
   const [proxyChoice, setProxyChoice] = useState<ProxyChoice>("auto");
   const [proxyId, setProxyId] = useState<number | null>(null);
   const [autostart, setAutostart] = useState(true);
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +73,7 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
         proxy_id: proxyChoice === "pick" ? proxyId : null,
         auto_assign_proxy: proxyChoice === "auto",
         bypass_ip: proxyChoice === "bypass",
+        show_setup_wizard: showSetupWizard,
       });
       onCreated(phone);
     } catch (e) {
@@ -239,6 +241,38 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
                 </select>
               </div>
             )}
+          </div>
+
+          <hr className="border-ink-800" />
+
+          <div>
+            <label className="label">First-boot experience</label>
+            <p className="mt-1 text-xs text-ink-500">
+              Every phone is cloned from a clean template — no apps, no cache, no saved data.
+              Pick whether it should boot straight to the launcher or run through Android&apos;s
+              first-boot setup wizard.
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {([
+                { v: false, title: "Skip setup wizard", sub: "Boots to launcher, already past Welcome/language/Wi-Fi/Google account." },
+                { v: true, title: "Show setup wizard", sub: "Clean phone that walks you through the usual first-boot flow." },
+              ] as const).map((opt) => (
+                <button
+                  type="button"
+                  key={String(opt.v)}
+                  onClick={() => setShowSetupWizard(opt.v)}
+                  className={[
+                    "rounded-md border px-3 py-2 text-left",
+                    showSetupWizard === opt.v
+                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                      : "border-ink-700 text-ink-300 hover:border-ink-600",
+                  ].join(" ")}
+                >
+                  <div className="text-sm font-medium">{opt.title}</div>
+                  <div className="mt-0.5 text-[11px] text-ink-400">{opt.sub}</div>
+                </button>
+              ))}
+            </div>
           </div>
 
           <label className="flex items-center gap-2 text-sm text-ink-200">

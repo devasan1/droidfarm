@@ -51,6 +51,16 @@ class LaunchOptions:
     imei: str | None = None
     manufacturer: str | None = None
     model: str | None = None
+    android_id: str | None = None
+    mac: str | None = None
+
+
+# Template instance names. The backend auto-creates + snapshots these on
+# first real-driver boot (see core.templates). Clones preserve all
+# attributes but reset volatile state — "clean phone, already past setup"
+# (configured) vs. "clean phone, first-boot wizard shows" (factory).
+TEMPLATE_FACTORY_NAME = "_droidfarm_template_factory"
+TEMPLATE_CONFIGURED_NAME = "_droidfarm_template_configured"
 
 
 class Driver(abc.ABC):
@@ -61,6 +71,15 @@ class Driver(abc.ABC):
 
     @abc.abstractmethod
     def create(self, name: str, opts: LaunchOptions) -> EmulatorInstance: ...
+
+    @abc.abstractmethod
+    def clone(self, name: str, source: str, opts: LaunchOptions) -> EmulatorInstance:
+        """Create a new instance by copying an existing one.
+
+        Used for factory-clean phones: we keep a hidden template instance
+        that's already set up (or untouched for the 'factory' flavor) and
+        clone from it so every new phone starts identical + disposable.
+        """
 
     @abc.abstractmethod
     def destroy(self, name: str) -> None: ...
@@ -152,6 +171,15 @@ class LDPlayerDriver(Driver):
             raise RuntimeError(f"created {name} but ldconsole didn't list it")
         return inst
 
+    def clone(self, name: str, source: str, opts: LaunchOptions) -> EmulatorInstance:
+        # ldconsole copy --name NEW --from SRC
+        self._run("copy", "--name", name, "--from", source)
+        self.modify(name, opts)
+        inst = self._find(name)
+        if inst is None:
+            raise RuntimeError(f"cloned {name} from {source} but ldconsole didn't list it")
+        return inst
+
     def destroy(self, name: str) -> None:
         self._run("remove", "--name", name)
 
@@ -216,6 +244,25 @@ class MockDriver(Driver):
             inst = EmulatorInstance(name=name, index=idx, status="stopped")
             self._phones[name] = inst
             logger.info("[mock] created %s (index=%d)", name, idx)
+            return inst
+
+    def clone(self, name: str, source: str, opts: LaunchOptions) -> EmulatorInstance:
+        with self._lock:
+            if name in self._phones:
+                return self._phones[name]
+            if source not in self._phones:
+                # For the mock driver we treat a missing template as "auto-created"
+                # so tests don't have to construct it explicitly.
+                src_idx = self._next_index
+                self._next_index += 1
+                self._phones[source] = EmulatorInstance(
+                    name=source, index=src_idx, status="stopped",
+                )
+            idx = self._next_index
+            self._next_index += 1
+            inst = EmulatorInstance(name=name, index=idx, status="stopped")
+            self._phones[name] = inst
+            logger.info("[mock] cloned %s from %s (index=%d)", name, source, idx)
             return inst
 
     def destroy(self, name: str) -> None:
