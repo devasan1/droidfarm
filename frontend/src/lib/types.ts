@@ -57,6 +57,7 @@ export interface Phone {
   created_at: string;
   last_started_at: string | null;
   last_error: string | null;
+  deleted_at: string | null;
 }
 
 export interface PhoneIn {

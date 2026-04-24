@@ -108,6 +108,7 @@ class PhoneOut(BaseModel):
     created_at: datetime
     last_started_at: datetime | None
     last_error: str | None
+    deleted_at: datetime | None = None
 
 
 class ApkOut(BaseModel):

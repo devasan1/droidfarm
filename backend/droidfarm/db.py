@@ -119,6 +119,11 @@ class Phone(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     last_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Soft-delete marker. When set, the phone is hidden from the main
+    # grid and its proxy is freed, but the LDPlayer instance and all
+    # on-disk data are kept so Restore is lossless. Purge permanently
+    # destroys the instance + row.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Apk(Base):
@@ -144,6 +149,22 @@ SessionLocal = sessionmaker(bind=_engine, autoflush=False, expire_on_commit=Fals
 
 def init_db() -> None:
     Base.metadata.create_all(_engine)
+    _migrate_in_place()
+
+
+def _migrate_in_place() -> None:
+    """Tiny in-place migration: adds columns that SQLAlchemy's
+    create_all doesn't back-fill onto tables that already exist. Cheaper
+    than Alembic for a single-process desktop app."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(_engine)
+    if "phones" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("phones")}
+    with _engine.begin() as conn:
+        if "deleted_at" not in cols:
+            conn.execute(text("ALTER TABLE phones ADD COLUMN deleted_at DATETIME"))
 
 
 @contextmanager

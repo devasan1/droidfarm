@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Play, Plus, RotateCcw, Square, Trash2 } from "lucide-react";
+import { Play, Plus, RotateCcw, Square, Trash2, Timer } from "lucide-react";
 import clsx from "clsx";
 import { api } from "../lib/api";
 import type { Phone } from "../lib/types";
 import AddPhoneModal from "../components/AddPhoneModal";
+import ConfirmModal from "../components/ConfirmModal";
 
 export default function Phones() {
   const [phones, setPhones] = useState<Phone[]>([]);
@@ -99,6 +100,8 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
   const [busy, setBusy] = useState<"start" | "stop" | "wipe" | "delete" | "install" | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [installMsg, setInstallMsg] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<"wipe" | "delete" | null>(null);
+  const uptime = useUptime(phone.status === "running" ? phone.last_started_at : null);
 
   async function uploadAndInstall(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.name.toLowerCase().endsWith(".apk"));
@@ -129,10 +132,6 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
   }
 
   async function act(kind: "start" | "stop" | "wipe" | "delete") {
-    if (kind === "wipe" && !window.confirm(
-      `Wipe ${phone.name}? Data + cache will be erased and the phone will be re-cloned from the ${phone.show_setup_wizard ? "factory" : "configured"} template (~20s).`,
-    )) return;
-    if (kind === "delete" && !window.confirm(`Delete ${phone.name} and free its proxy?`)) return;
     setBusy(kind);
     try {
       if (kind === "start") await api.startPhone(phone.id);
@@ -171,9 +170,17 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
             {phone.device_profile} · Android {phone.android_version} · {phone.resolution}
           </div>
         </div>
-        <span className={clsx("chip border", statusColor(phone.status))}>
-          {phone.status}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className={clsx("chip border", statusColor(phone.status))}>
+            {phone.status}
+          </span>
+          {uptime && (
+            <span className="flex items-center gap-1 text-[11px] text-ink-400">
+              <Timer size={11} />
+              up {uptime}
+            </span>
+          )}
+        </div>
       </div>
       {installMsg && (
         <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200">
@@ -261,18 +268,90 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
           className="btn-ghost"
           title="Wipe + re-clone from template"
           disabled={busy !== null}
-          onClick={() => act("wipe")}
+          onClick={() => setConfirm("wipe")}
         >
           <RotateCcw size={14} />
         </button>
         <button
           className="btn-ghost ml-auto text-red-300 hover:bg-red-500/10 hover:text-red-200"
           disabled={busy !== null}
-          onClick={() => act("delete")}
+          onClick={() => setConfirm("delete")}
+          title="Move to Trash (reversible)"
         >
           <Trash2 size={14} />
         </button>
       </div>
+
+      <ConfirmModal
+        open={confirm === "wipe"}
+        title={`Wipe ${phone.name}?`}
+        confirmLabel="Wipe + re-clone"
+        onClose={() => setConfirm(null)}
+        onConfirm={async () => {
+          setConfirm(null);
+          await act("wipe");
+        }}
+        message={
+          <>
+            <p>
+              All data, cache, cookies, and installed apps on this phone
+              will be erased.
+            </p>
+            <p className="text-ink-400">
+              The phone will then be re-cloned from the{" "}
+              <b>
+                {phone.show_setup_wizard ? "factory" : "configured"}
+              </b>{" "}
+              template (~20s). Proxy and geo overrides are kept.
+            </p>
+          </>
+        }
+      />
+
+      <ConfirmModal
+        open={confirm === "delete"}
+        title={`Move ${phone.name} to Trash?`}
+        confirmLabel="Move to Trash"
+        onClose={() => setConfirm(null)}
+        onConfirm={async () => {
+          setConfirm(null);
+          await act("delete");
+        }}
+        message={
+          <>
+            <p>
+              You are trying to delete <b>{phone.name}</b>. The phone will
+              stop and be hidden from the grid, but its data, installed
+              apps, and LDPlayer instance are preserved.
+            </p>
+            <p className="text-ink-400">
+              You can <b>Restore</b> it anytime from the Trash page.
+              Permanent deletion (purge) is a separate action there.
+            </p>
+          </>
+        }
+      />
     </div>
   );
+}
+
+function useUptime(startedAt: string | null): string | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [startedAt]);
+  if (!startedAt) return null;
+  const ms = now - new Date(startedAt).getTime();
+  if (ms < 0 || !Number.isFinite(ms)) return null;
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
 }

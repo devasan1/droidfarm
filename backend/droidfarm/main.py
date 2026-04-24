@@ -112,6 +112,7 @@ def _resume_autostart_phones() -> None:
                     select(Phone.id).where(
                         Phone.autostart.is_(True),
                         Phone.status != "running",
+                        Phone.deleted_at.is_(None),
                     )
                 ).all()
             ]

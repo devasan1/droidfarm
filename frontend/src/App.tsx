@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { Smartphone, Globe2, Package } from "lucide-react";
+import { Smartphone, Globe2, Package, Trash2 } from "lucide-react";
 
 export default function App() {
   return (
@@ -13,6 +13,7 @@ export default function App() {
           <Nav to="/phones" icon={<Smartphone size={16} />}>Phones</Nav>
           <Nav to="/proxies" icon={<Globe2 size={16} />}>Proxies</Nav>
           <Nav to="/apks" icon={<Package size={16} />}>APK library</Nav>
+          <Nav to="/trash" icon={<Trash2 size={16} />}>Trash</Nav>
         </nav>
         <div className="mt-auto px-2 text-[11px] text-ink-500">
           v0.1.0 · {new Date().getFullYear()}

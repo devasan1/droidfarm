@@ -12,6 +12,9 @@
   .btn-ghost {
     @apply inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-ink-300 hover:bg-ink-800 hover:text-ink-100;
   }
+  .btn-danger {
+    @apply inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40;
+  }
   .card {
     @apply rounded-xl border border-ink-800 bg-ink-900;
   }

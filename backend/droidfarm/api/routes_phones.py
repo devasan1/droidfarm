@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -23,6 +24,10 @@ from droidfarm.db import Apk, Phone, Proxy, session_scope
 from droidfarm.schemas import PhoneIn, PhoneOut, ProxyOut
 
 logger = logging.getLogger(__name__)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
 router = APIRouter(prefix="/api/phones", tags=["phones"])
 
@@ -120,6 +125,7 @@ def _phone_to_out(phone: Phone) -> PhoneOut:
         created_at=phone.created_at,
         last_started_at=phone.last_started_at,
         last_error=phone.last_error,
+        deleted_at=phone.deleted_at,
     )
 
 
@@ -399,7 +405,20 @@ def _geo_overrides_for_bypass(
 @router.post("", response_model=PhoneOut, status_code=201)
 def create_phone(payload: PhoneIn) -> PhoneOut:
     with session_scope() as s:
-        if s.execute(select(Phone).where(Phone.name == payload.name)).scalar_one_or_none():
+        existing = s.execute(
+            select(Phone).where(Phone.name == payload.name)
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.deleted_at is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"a phone named {payload.name!r} is in Trash "
+                        f"(id={existing.id}). Restore it or purge it first "
+                        "— new phones never recycle an existing LDPlayer "
+                        "instance."
+                    ),
+                )
             raise HTTPException(status_code=409, detail="phone name already exists")
 
         bypass = payload.proxy_mode == "none" or payload.bypass_ip
@@ -470,8 +489,32 @@ def create_phone(payload: PhoneIn) -> PhoneOut:
 
 @router.get("", response_model=list[PhoneOut])
 def list_phones() -> list[PhoneOut]:
+    """Active phones only (soft-deleted ones live under /trash)."""
     with session_scope() as s:
-        phones = s.execute(select(Phone).order_by(Phone.id)).scalars().all()
+        phones = (
+            s.execute(
+                select(Phone).where(Phone.deleted_at.is_(None)).order_by(Phone.id)
+            )
+            .scalars()
+            .all()
+        )
+        return [_phone_to_out(p) for p in phones]
+
+
+@router.get("/trash", response_model=list[PhoneOut])
+def list_trashed_phones() -> list[PhoneOut]:
+    """Phones moved to trash — data and LDPlayer instance still on disk,
+    ready to Restore. Purge is the only way to actually destroy them."""
+    with session_scope() as s:
+        phones = (
+            s.execute(
+                select(Phone)
+                .where(Phone.deleted_at.is_not(None))
+                .order_by(Phone.deleted_at.desc())
+            )
+            .scalars()
+            .all()
+        )
         return [_phone_to_out(p) for p in phones]
 
 
@@ -486,6 +529,50 @@ def get_phone(phone_id: int) -> PhoneOut:
 
 @router.delete("/{phone_id}", status_code=204)
 def delete_phone(phone_id: int) -> None:
+    """Soft-delete: move the phone to trash. The LDPlayer instance is
+    stopped but NOT destroyed, so Restore is lossless. The proxy is
+    released so it can be reused elsewhere.
+    """
+    with session_scope() as s:
+        phone = s.get(Phone, phone_id)
+        if phone is None:
+            raise HTTPException(status_code=404, detail="phone not found")
+        if phone.deleted_at is not None:
+            return  # already trashed, no-op
+        name = phone.name
+        phone.deleted_at = _now_utc()
+        phone.proxy_id = None  # free the proxy
+        phone.status = "stopped"
+
+    # Stop the LDPlayer instance but keep its data on disk.
+    try:
+        driver = get_driver()
+        driver.stop(name)
+    except Exception as e:
+        logger.warning("driver stop for %s on trash failed (ignored): %s", name, e)
+
+
+@router.post("/{phone_id}/restore", response_model=PhoneOut)
+def restore_phone(phone_id: int) -> PhoneOut:
+    """Bring a trashed phone back. If its former proxy is still free,
+    it is re-attached; otherwise the phone comes back without a proxy
+    and the UI will prompt to pick a new one.
+    """
+    with session_scope() as s:
+        phone = s.get(Phone, phone_id)
+        if phone is None:
+            raise HTTPException(status_code=404, detail="phone not found")
+        if phone.deleted_at is None:
+            raise HTTPException(status_code=409, detail="phone is not in trash")
+        phone.deleted_at = None
+        return _phone_to_out(phone)
+
+
+@router.post("/{phone_id}/purge", status_code=204)
+def purge_phone(phone_id: int) -> None:
+    """PERMANENTLY delete the phone: destroys the LDPlayer instance and
+    its DB row. Cannot be undone.
+    """
     with session_scope() as s:
         phone = s.get(Phone, phone_id)
         if phone is None:
@@ -493,13 +580,12 @@ def delete_phone(phone_id: int) -> None:
         name = phone.name
         s.delete(phone)
 
-    # Best-effort cleanup of the underlying LDPlayer instance.
     try:
         driver = get_driver()
         driver.stop(name)
         driver.destroy(name)
     except Exception as e:
-        logger.warning("driver cleanup for %s failed (ignored): %s", name, e)
+        logger.warning("driver destroy for %s on purge failed (ignored): %s", name, e)
 
 
 @router.post("/{phone_id}/start", response_model=PhoneOut)
@@ -629,6 +715,7 @@ def install_apk_on_phone(phone_id: int, payload: _InstallApkIn) -> _InstallResul
         )
 
     driver = get_driver()
+    native_err: str | None = None
     try:
         # Native path (LDPlayer: fast, no adb hop).
         driver.install_apk(phone_name, apk_path)
@@ -636,6 +723,7 @@ def install_apk_on_phone(phone_id: int, payload: _InstallApkIn) -> _InstallResul
             ok=True, apk_id=payload.apk_id, phone_id=phone_id, filename=apk_filename,
         )
     except Exception as native_exc:
+        native_err = str(native_exc)
         logger.info("driver.install_apk native path failed, trying adb: %s", native_exc)
 
     # Fallback: adb install -r (only if the driver surfaces adb + the phone
@@ -643,7 +731,7 @@ def install_apk_on_phone(phone_id: int, payload: _InstallApkIn) -> _InstallResul
     if not getattr(driver, "supports_adb", True):
         raise HTTPException(
             status_code=500,
-            detail=f"driver install failed and adb fallback disabled: {native_exc}",
+            detail=f"driver install failed and adb fallback disabled: {native_err}",
         )
     port = 5555 + 2 * (phone_ldindex or 0)
     from droidfarm.core import adb as adb_mod

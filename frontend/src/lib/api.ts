@@ -33,6 +33,9 @@ export const api = {
   createPhone: (body: PhoneIn) =>
     req<Phone>("/api/phones", { method: "POST", body: JSON.stringify(body) }),
   deletePhone: (id: number) => req<void>(`/api/phones/${id}`, { method: "DELETE" }),
+  listTrashedPhones: () => req<Phone[]>("/api/phones/trash"),
+  restorePhone: (id: number) => req<Phone>(`/api/phones/${id}/restore`, { method: "POST" }),
+  purgePhone: (id: number) => req<void>(`/api/phones/${id}/purge`, { method: "POST" }),
   startPhone: (id: number) => req<Phone>(`/api/phones/${id}/start`, { method: "POST" }),
   stopPhone: (id: number) => req<Phone>(`/api/phones/${id}/stop`, { method: "POST" }),
   wipePhone: (id: number) => req<Phone>(`/api/phones/${id}/wipe`, { method: "POST" }),
