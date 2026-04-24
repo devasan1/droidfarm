@@ -19,6 +19,15 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # Harden cargo against flaky GitHub runner networking.
+      CARGO_NET_RETRY: "10"
+      CARGO_NET_TIMEOUT: "60"
+      CARGO_HTTP_MULTIPLEXING: "false"
+      # npm retry knobs.
+      NPM_CONFIG_FETCH_RETRIES: "5"
+      NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "20000"
+      NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "120000"
     steps:
       - uses: actions/checkout@v4
 
@@ -37,16 +46,25 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Install frontend deps
+      - name: Install frontend deps (with retry)
         working-directory: frontend
-        run: npm ci
+        shell: pwsh
+        run: |
+          $max = 3
+          for ($i = 1; $i -le $max; $i++) {
+            npm ci
+            if ($LASTEXITCODE -eq 0) { break }
+            Write-Host "npm ci attempt $i failed; sleeping 15s"
+            Start-Sleep -Seconds 15
+            if ($i -eq $max) { throw "npm ci failed after $max attempts" }
+          }
 
       - name: Build frontend
         working-directory: frontend
         run: npm run build
 
       - name: Build Tauri installers
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v0.5.15
         with:
           projectPath: src-tauri
           includeRelease: true
