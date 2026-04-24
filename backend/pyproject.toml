@@ -16,6 +16,7 @@ dependencies = [
     "anyio>=4.6",
     "typer>=0.13",
     "rich>=13.9",
+    "croniter>=3.0",
 ]
 
 [project.optional-dependencies]

@@ -17,7 +17,9 @@ from droidfarm.api.routes_farm import router as farm_router
 from droidfarm.api.routes_health import router as health_router
 from droidfarm.api.routes_phones import router as phones_router
 from droidfarm.api.routes_proxies import router as proxies_router
+from droidfarm.api.routes_schedules import router as schedules_router
 from droidfarm.config import SETTINGS
+from droidfarm.core.scheduler import start_scheduler
 from droidfarm.db import init_db
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(proxies_router)
     app.include_router(apks_router)
     app.include_router(farm_router)
+    app.include_router(schedules_router)
 
     # Serve the built React frontend at / (production bundle). The bat/
     # shell launcher runs `npm run build` in frontend/ before booting
@@ -100,6 +103,7 @@ def create_app() -> FastAPI:
         else:
             logger.warning("ldconsole.exe not found; running with mock driver")
         _resume_autostart_phones()
+        start_scheduler()
 
     return app
 

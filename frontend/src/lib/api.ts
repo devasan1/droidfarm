@@ -1,4 +1,13 @@
-import type { Apk, HostGeo, Phone, PhoneIn, Proxy, ProxyIn } from "./types";
+import type {
+  Apk,
+  HostGeo,
+  Phone,
+  PhoneIn,
+  Proxy,
+  ProxyIn,
+  Schedule,
+  ScheduleActionSpec,
+} from "./types";
 
 const BASE = "";
 
@@ -183,4 +192,39 @@ export const api = {
     if (!r.ok) throw new Error(await r.text());
     return await r.text();
   },
+
+  listSchedules: () => req<Schedule[]>("/api/schedules"),
+  scheduleActions: () =>
+    req<{ actions: ScheduleActionSpec[] }>("/api/schedules/actions"),
+  createSchedule: (body: {
+    name: string;
+    cron: string;
+    action: string;
+    target_phone_ids?: number[];
+    params?: Record<string, unknown>;
+    enabled?: boolean;
+  }) =>
+    req<Schedule>("/api/schedules", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  patchSchedule: (
+    id: number,
+    body: Partial<{
+      name: string;
+      cron: string;
+      action: string;
+      target_phone_ids: number[];
+      params: Record<string, unknown>;
+      enabled: boolean;
+    }>,
+  ) =>
+    req<Schedule>(`/api/schedules/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  runScheduleNow: (id: number) =>
+    req<Schedule>(`/api/schedules/${id}/run`, { method: "POST" }),
+  deleteSchedule: (id: number) =>
+    req<void>(`/api/schedules/${id}`, { method: "DELETE" }),
 };

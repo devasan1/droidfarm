@@ -150,6 +150,34 @@ class Apk(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class Schedule(Base):
+    """Cron-style scheduled action.
+
+    `cron` is a standard 5-field cron expression evaluated in UTC.
+    `action` is one of: start, stop, wipe, rotate_gps, launch_package,
+    shell, rotate_proxy.
+    `target_phone_ids` is a JSON list; an empty list means 'all live phones'.
+    `params` is free-form JSON the action handler consumes
+    (e.g. {"package": "com.tiktok"} for launch_package, {"cmd": "..."}
+    for shell, {"delta_deg": 0.01} for rotate_gps).
+    """
+
+    __tablename__ = "schedules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    cron: Mapped[str] = mapped_column(String, nullable=False)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    target_phone_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 _engine = create_engine(
     f"sqlite:///{SETTINGS.db_path}",
     future=True,

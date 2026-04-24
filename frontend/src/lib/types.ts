@@ -103,3 +103,28 @@ export interface Apk {
   sha256: string | null;
   added_at: string;
 }
+
+export interface Schedule {
+  id: number;
+  name: string;
+  cron: string;
+  action: string;
+  target_phone_ids: number[];
+  params: Record<string, unknown>;
+  enabled: boolean;
+  created_at: string;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_status: string | null;
+  last_error: string | null;
+}
+
+export interface ScheduleActionSpec {
+  name: string;
+  params: Array<{
+    name: string;
+    type: string;
+    default?: unknown;
+    required?: boolean;
+  }>;
+}
