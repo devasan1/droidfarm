@@ -204,11 +204,28 @@ export default function PhoneViewer({ phone, onClose }: Props) {
               onMouseUp={onMouseUp}
               className="h-full w-full cursor-crosshair select-none object-fill"
             />
-            {err && (
+            {err && /current driver does not surface adb/i.test(err) ? (
+              <div className="absolute inset-3 flex flex-col items-center justify-center rounded-lg bg-ink-900/90 p-4 text-center">
+                <div className="mb-2 text-sm font-semibold text-amber-300">
+                  Mock driver
+                </div>
+                <div className="mb-3 text-xs text-ink-300">
+                  This phone is virtual. Install LDPlayer 9 to drive a real
+                  Android emulator (taps, screenshots, shell, APK install).
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => setErr(null)}
+                >
+                  dismiss
+                </button>
+              </div>
+            ) : err ? (
               <div className="absolute inset-x-3 bottom-3 rounded bg-red-950/80 px-3 py-2 text-xs text-red-200">
                 {err}
               </div>
-            )}
+            ) : null}
           </div>
           <div className="mt-3 flex items-center gap-2">
             <button

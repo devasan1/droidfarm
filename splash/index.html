@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DroidFarm</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        height: 100%;
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: #0b0f14;
+        color: #cbd5e1;
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(900px 500px at 50% 30%, #0e1722 0%, #0b0f14 60%, #07090c 100%);
+      }
+      .card {
+        width: min(440px, 92vw);
+        text-align: center;
+        padding: 28px 32px 24px;
+      }
+      .brand {
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        color: #34d399;
+        margin: 0 0 4px;
+      }
+      .tagline {
+        font-size: 12px;
+        color: #64748b;
+        margin: 0 0 28px;
+      }
+      .spinner {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto 18px;
+        border: 3px solid rgba(52, 211, 153, 0.18);
+        border-top-color: #34d399;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      .status {
+        font-size: 14px;
+        color: #e2e8f0;
+        margin: 0 0 6px;
+      }
+      .hint {
+        font-size: 12px;
+        color: #64748b;
+        margin: 0;
+        min-height: 16px;
+      }
+      .progress {
+        margin-top: 22px;
+        height: 4px;
+        width: 100%;
+        background: rgba(148, 163, 184, 0.12);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .progress > span {
+        display: block;
+        height: 100%;
+        width: 30%;
+        background: linear-gradient(90deg, transparent, #34d399, transparent);
+        animation: slide 1.4s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(400%); }
+      }
+      .err {
+        margin-top: 18px;
+        font-size: 12px;
+        color: #fca5a5;
+        background: rgba(127, 29, 29, 0.4);
+        border: 1px solid rgba(248, 113, 113, 0.2);
+        padding: 10px 12px;
+        border-radius: 6px;
+        text-align: left;
+        white-space: pre-wrap;
+        display: none;
+      }
+      .err.shown { display: block; }
+      kbd {
+        background: #1e293b;
+        border: 1px solid #334155;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="spinner"></div>
+      <h1 class="brand">DroidFarm</h1>
+      <p class="tagline">local android farm</p>
+      <p class="status" id="status">Starting backend…</p>
+      <p class="hint" id="hint">First launch can take 30–60 seconds while we set up the Python environment.</p>
+      <div class="progress" aria-hidden="true"><span></span></div>
+      <div class="err" id="err"></div>
+    </div>
+    <script>
+      // Backend boots on http://127.0.0.1:7870 — once /api/health responds 200,
+      // navigate the window to the React UI.
+      const HEALTH_URL = "http://127.0.0.1:7870/api/health";
+      const APP_URL = "http://127.0.0.1:7870";
+      const statusEl = document.getElementById("status");
+      const hintEl = document.getElementById("hint");
+      const errEl = document.getElementById("err");
+      const startedAt = Date.now();
+      let attempts = 0;
+
+      async function poll() {
+        attempts++;
+        try {
+          const r = await fetch(HEALTH_URL, { cache: "no-store" });
+          if (r.ok) {
+            statusEl.textContent = "Backend ready — loading UI…";
+            errEl.classList.remove("shown");
+            // Tiny delay so the message is readable.
+            setTimeout(() => { window.location.replace(APP_URL); }, 250);
+            return;
+          }
+        } catch (_) {
+          // Backend not up yet — keep waiting.
+        }
+        const elapsed = Math.round((Date.now() - startedAt) / 1000);
+        if (elapsed >= 15 && elapsed < 45) {
+          statusEl.textContent = "Setting up Python environment…";
+          hintEl.textContent = "Installing FastAPI, SQLAlchemy, etc. (~30s, only on first run).";
+        } else if (elapsed >= 45 && elapsed < 90) {
+          statusEl.textContent = "Almost there — finalizing install…";
+          hintEl.textContent = "If this is taking too long, check %LOCALAPPDATA%\\DroidFarm for logs.";
+        } else if (elapsed >= 90) {
+          statusEl.textContent = "Backend isn't responding.";
+          hintEl.textContent = "It may have failed to install. Try uninstalling DroidFarm, deleting %LOCALAPPDATA%\\DroidFarm, and reinstalling.";
+          errEl.textContent =
+            "Timed out waiting for http://127.0.0.1:7870/api/health.\n" +
+            "If you launched from a terminal, check stderr for [droidfarm] lines.";
+          errEl.classList.add("shown");
+        }
+        setTimeout(poll, 500);
+      }
+
+      poll();
+    </script>
+  </body>
+</html>

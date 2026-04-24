@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
+import { api } from "../lib/api";
 
 /**
  * Export / import the whole farm as a zip. This is the easiest way
@@ -13,6 +14,27 @@ export default function Settings() {
   const [includeVm, setIncludeVm] = useState(false);
   const [merge, setMerge] = useState(true);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [health, setHealth] = useState<{
+    mock_driver: boolean;
+    ldconsole: string | null;
+    adb: string;
+    platform: string;
+  } | null>(null);
+  useEffect(() => {
+    api
+      .health()
+      .then((h) =>
+        setHealth({
+          mock_driver: h.mock_driver,
+          ldconsole: h.ldconsole,
+          adb: (h as unknown as { adb?: string }).adb ?? "",
+          platform: (h as unknown as { platform?: string }).platform ?? "",
+        }),
+      )
+      .catch(() => {
+        /* ignore */
+      });
+  }, []);
 
   async function onExport() {
     setMsg(null);
@@ -65,6 +87,50 @@ export default function Settings() {
       {err && (
         <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
           {err}
+        </div>
+      )}
+
+      {health && (
+        <div className="card mb-4 p-5">
+          <h2 className="mb-2 text-lg font-semibold text-ink-50">Driver</h2>
+          {health.mock_driver ? (
+            <>
+              <p className="mb-2 text-sm text-amber-300">
+                Currently using the <strong>mock driver</strong> — phones are
+                virtual stubs and don't surface adb, screenshots, or input.
+              </p>
+              <p className="mb-3 text-sm text-ink-400">
+                To drive real Android emulators, install LDPlayer 9 from{" "}
+                <a
+                  href="https://www.ldplayer.net/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-emerald-400 underline"
+                >
+                  ldplayer.net
+                </a>{" "}
+                and relaunch DroidFarm. We auto-detect <code>ldconsole.exe</code>{" "}
+                under <code>C:\</code>, <code>D:\</code>, <code>E:\</code> on
+                start. If you've installed it somewhere else, set the env var{" "}
+                <code>DROIDFARM_LDCONSOLE</code> to the full path before
+                launching.
+              </p>
+            </>
+          ) : (
+            <p className="mb-2 text-sm text-emerald-300">
+              LDPlayer driver active.
+            </p>
+          )}
+          <div className="grid grid-cols-[120px_1fr] gap-y-1 text-xs text-ink-400">
+            <div>ldconsole</div>
+            <div className="font-mono text-ink-200">
+              {health.ldconsole ?? "(not found)"}
+            </div>
+            <div>adb</div>
+            <div className="font-mono text-ink-200">{health.adb}</div>
+            <div>platform</div>
+            <div className="font-mono text-ink-200">{health.platform}</div>
+          </div>
         </div>
       )}
 

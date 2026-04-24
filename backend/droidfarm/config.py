@@ -24,15 +24,21 @@ def _default_ldconsole() -> str | None:
     env = os.environ.get("DROIDFARM_LDCONSOLE")
     if env:
         return env
-    # Default install paths for LDPlayer 9 on Windows.
-    candidates = [
-        r"C:\LDPlayer\LDPlayer9\ldconsole.exe",
-        r"C:\Program Files\LDPlayer\LDPlayer9\ldconsole.exe",
-        r"C:\Program Files (x86)\LDPlayer\LDPlayer9\ldconsole.exe",
+    # Default install paths for LDPlayer 9 on Windows. We scan a handful of
+    # common drives + Program Files variants — users routinely install
+    # LDPlayer to D:\ to keep the SSD free.
+    drives = ["C:", "D:", "E:"]
+    suffixes = [
+        r"\LDPlayer\LDPlayer9\ldconsole.exe",
+        r"\Program Files\LDPlayer\LDPlayer9\ldconsole.exe",
+        r"\Program Files (x86)\LDPlayer\LDPlayer9\ldconsole.exe",
+        r"\LDPlayer9\ldconsole.exe",
     ]
-    for p in candidates:
-        if Path(p).exists():
-            return p
+    for d in drives:
+        for s in suffixes:
+            p = d + s
+            if Path(p).exists():
+                return p
     return None
 
 
