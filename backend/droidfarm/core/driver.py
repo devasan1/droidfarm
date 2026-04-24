@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -162,18 +163,43 @@ class LDPlayerDriver(Driver):
     def __init__(self, ldconsole_path: str):
         self.ldconsole = ldconsole_path
 
-    def _run(self, *args: str, timeout: float = 60.0) -> str:
+    def _run(
+        self,
+        *args: str,
+        timeout: float = 60.0,
+        check: bool = True,
+    ) -> str:
+        """Invoke ldconsole.exe.
+
+        ldconsole is run with cwd set to its own install directory because
+        some commands rely on sibling DLLs being on the loader search path.
+
+        Some LDPlayer 9 builds return non-zero exit codes (commonly 3) on
+        commands like ``add`` and ``copy`` even when the operation actually
+        succeeded — the new instance shows up in ``list2`` afterward. Pass
+        ``check=False`` for those commands and have the caller verify
+        success by listing.
+        """
         cmd = [self.ldconsole, *args]
-        logger.debug("ldconsole %s", " ".join(args))
+        cwd = os.path.dirname(self.ldconsole) or None
+        logger.debug("ldconsole %s (cwd=%s)", " ".join(args), cwd)
         r = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
+            cwd=cwd,
         )
-        if r.returncode != 0:
+        if check and r.returncode != 0:
             raise RuntimeError(f"ldconsole {args[0]} failed: {r.stderr or r.stdout}")
+        if r.returncode != 0:
+            logger.debug(
+                "ldconsole %s exited %s (tolerated): %s",
+                args[0],
+                r.returncode,
+                (r.stderr or r.stdout).strip(),
+            )
         return r.stdout
 
     # ------------------------------------------------------------------
@@ -207,21 +233,32 @@ class LDPlayerDriver(Driver):
         return next((i for i in self.list() if i.name == name), None)
 
     def create(self, name: str, opts: LaunchOptions) -> EmulatorInstance:
-        self._run("add", "--name", name)
-        self.modify(name, opts)
+        # ldconsole `add` returns non-zero on some LDPlayer builds even when
+        # the instance is created. Verify by listing instead of trusting the
+        # exit code.
+        self._run("add", "--name", name, check=False)
         inst = self._find(name)
         if inst is None:
-            raise RuntimeError(f"created {name} but ldconsole didn't list it")
-        return inst
+            raise RuntimeError(
+                f"ldconsole did not list {name} after `add`. "
+                "Open LDPlayer's Multi-Instance Manager once to initialize "
+                "it, then try again."
+            )
+        self.modify(name, opts)
+        # modify() may shift internals; re-query to return the latest.
+        return self._find(name) or inst
 
     def clone(self, name: str, source: str, opts: LaunchOptions) -> EmulatorInstance:
-        # ldconsole copy --name NEW --from SRC
-        self._run("copy", "--name", name, "--from", source)
-        self.modify(name, opts)
+        # See create(): ldconsole `copy` has the same exit-code-on-success quirk.
+        self._run("copy", "--name", name, "--from", source, check=False)
         inst = self._find(name)
         if inst is None:
-            raise RuntimeError(f"cloned {name} from {source} but ldconsole didn't list it")
-        return inst
+            raise RuntimeError(
+                f"ldconsole did not list {name} after `copy --from {source}`. "
+                "Verify the source template exists in LDPlayer."
+            )
+        self.modify(name, opts)
+        return self._find(name) or inst
 
     def destroy(self, name: str) -> None:
         self._run("remove", "--name", name)
