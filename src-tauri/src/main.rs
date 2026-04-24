@@ -95,7 +95,9 @@ fn main() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let handle: State<'_, BackendHandle> = window.app_handle().state();
-                if let Some(mut child) = handle.0.lock().unwrap().take() {
+
+                let mut guard = handle.0.lock().unwrap();
+                if let Some(mut child) = guard.take() {
                     let _ = child.kill();
                 }
             }
