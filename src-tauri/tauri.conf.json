@@ -39,6 +39,7 @@
     ],
     "resources": {
       "../backend": "backend/",
+      "../frontend/dist": "frontend/dist/",
       "../DroidFarm.bat": "DroidFarm.bat"
     },
     "externalBin": [],

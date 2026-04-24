@@ -157,9 +157,10 @@ fn ensure_venv(venv_dir: &Path, backend_dir: &Path) -> Result<PathBuf, String> {
     Ok(py_in_venv)
 }
 
-fn spawn_backend(python: &Path, backend_dir: &Path) -> Result<Child, String> {
+fn spawn_backend(python: &Path, backend_dir: &Path, static_dir: &Path) -> Result<Child, String> {
     Command::new(python)
         .current_dir(backend_dir)
+        .env("DROIDFARM_STATIC_DIR", static_dir)
         .arg("-m")
         .arg("droidfarm")
         .stdout(Stdio::inherit())
@@ -185,10 +186,11 @@ fn main() {
         .setup(|app| {
             let resource_dir = app.path().resource_dir()?;
             let backend_dir = resource_dir.join("backend");
+            let static_dir = resource_dir.join("frontend").join("dist");
             let venv_dir = user_state_dir().join("venv");
 
             match ensure_venv(&venv_dir, &backend_dir) {
-                Ok(python) => match spawn_backend(&python, &backend_dir) {
+                Ok(python) => match spawn_backend(&python, &backend_dir, &static_dir) {
                     Ok(child) => {
                         let handle: State<'_, BackendHandle> = app.state();
                         *handle.0.lock().unwrap() = Some(child);
