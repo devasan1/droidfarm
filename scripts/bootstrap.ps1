@@ -156,6 +156,31 @@ function Ensure-Frontend-Built {
     } finally { Pop-Location }
 }
 
+function Ensure-HostAutostart {
+    # Drop a .lnk into the user's Startup folder so DroidFarm.bat runs on
+    # every login — phones marked autostart=True then auto-resume via the
+    # backend's resume-autostart-phones boot hook. Idempotent.
+    $startup = [Environment]::GetFolderPath('Startup')
+    $lnk     = Join-Path $startup 'DroidFarm.lnk'
+    $target  = Join-Path $repoRoot 'DroidFarm.bat'
+    if (Test-Path $lnk) {
+        Log "host autostart already configured ($lnk)"
+        return
+    }
+    try {
+        $ws = New-Object -ComObject WScript.Shell
+        $s  = $ws.CreateShortcut($lnk)
+        $s.TargetPath       = $target
+        $s.WorkingDirectory = $repoRoot
+        $s.WindowStyle      = 7   # minimized
+        $s.Description      = 'DroidFarm — local Android farm control plane'
+        $s.Save()
+        Log "host autostart installed: $lnk"
+    } catch {
+        Log "host autostart install failed (non-fatal): $_"
+    }
+}
+
 function Launch-App {
     Log 'starting DroidFarm backend on http://127.0.0.1:7870'
     $env:DROIDFARM_HOST = '127.0.0.1'
@@ -183,6 +208,7 @@ try {
     Ensure-Venv
     Install-Backend
     Ensure-Frontend-Built
+    Ensure-HostAutostart
     Launch-App
 } catch {
     Log "FAILED: $_"

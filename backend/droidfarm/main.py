@@ -87,8 +87,45 @@ def create_app() -> FastAPI:
             logger.info("ldconsole: %s", SETTINGS.ldconsole_path)
         else:
             logger.warning("ldconsole.exe not found; running with mock driver")
+        _resume_autostart_phones()
 
     return app
+
+
+def _resume_autostart_phones() -> None:
+    """On backend boot, bring every phone that has ``autostart=True``
+    back online. The user specified: 'keeps on running unless stopped' —
+    this honors that across backend restarts and host reboots.
+
+    Done through the normal start pipeline so template preparation,
+    geo-spoof, and proxy assignment all fire just like manual starts.
+    """
+    from droidfarm.api.routes_phones import _start_in_background
+    from droidfarm.db import Phone, session_scope
+    from sqlalchemy import select
+
+    try:
+        with session_scope() as s:
+            ids = [
+                row[0]
+                for row in s.execute(
+                    select(Phone.id).where(
+                        Phone.autostart.is_(True),
+                        Phone.status != "running",
+                    )
+                ).all()
+            ]
+            # Pre-flip the status so the UI shows 'starting' immediately.
+            for pid in ids:
+                p = s.get(Phone, pid)
+                if p is not None:
+                    p.status = "starting"
+                    p.last_error = None
+        for pid in ids:
+            logger.info("autostart: resuming phone id=%s", pid)
+            _start_in_background(pid)
+    except Exception as e:
+        logger.warning("autostart scan failed: %s", e)
 
 
 app = create_app()
