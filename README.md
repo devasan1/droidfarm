@@ -24,7 +24,14 @@ A desktop control plane for running **multiple Android emulators** on your Windo
 
 ## Quick start (Windows)
 
-Double-click **`DroidFarm.bat`**. First run installs Python 3.11, Node 20, Git, LDPlayer 9, then builds the frontend and boots the backend. Subsequent launches take ~3 seconds.
+Two options:
+
+1. **MSI installer** (one-click, polished) — tag a `v*` release on GitHub and
+   download the `.msi` / `-setup.exe` produced by the `windows-release` CI
+   workflow. See [`src-tauri/README.md`](src-tauri/README.md).
+2. **`DroidFarm.bat`** (fastest to try) — double-click it from a checkout.
+   First run installs Python 3.11, Node 20, Git, LDPlayer 9, then builds the
+   frontend and boots the backend. Subsequent launches take ~3 seconds.
 
 See **[`docs/gcp-setup.md`](docs/gcp-setup.md)** if you're hosting on GCP — nested virt is a prerequisite.
 
