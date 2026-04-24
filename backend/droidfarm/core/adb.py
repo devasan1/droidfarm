@@ -45,6 +45,51 @@ def shell(serial: str, *args: str, timeout: float = 60.0) -> str:
     return _run(serial, "shell", *args, timeout=timeout)
 
 
+def screencap_png(serial: str, timeout: float = 8.0) -> bytes:
+    """Capture the framebuffer as a PNG.
+
+    Uses ``adb exec-out screencap -p`` which avoids the
+    \\r\\n-to-\\n mangling of plain ``adb shell`` on Windows.
+    """
+    cmd = [SETTINGS.adb_path, "-s", serial, "exec-out", "screencap", "-p"]
+    r = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    if r.returncode != 0:
+        raise ADBError(f"screencap failed: {r.stderr.decode(errors='replace').strip()}")
+    if not r.stdout.startswith(b"\x89PNG"):
+        raise ADBError("screencap returned a non-PNG payload")
+    return r.stdout
+
+
+def input_tap(serial: str, x: int, y: int) -> None:
+    shell(serial, "input", "tap", str(int(x)), str(int(y)))
+
+
+def input_swipe(
+    serial: str, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 100
+) -> None:
+    shell(
+        serial,
+        "input",
+        "swipe",
+        str(int(x1)),
+        str(int(y1)),
+        str(int(x2)),
+        str(int(y2)),
+        str(int(duration_ms)),
+    )
+
+
+def input_text(serial: str, text: str) -> None:
+    """Send literal text to whatever view has focus. Spaces are encoded
+    as %s per adb convention."""
+    encoded = text.replace(" ", "%s")
+    shell(serial, "input", "text", encoded)
+
+
+def input_keyevent(serial: str, keycode: str | int) -> None:
+    shell(serial, "input", "keyevent", str(keycode))
+
+
 def install(serial: str, apk_path: Path, reinstall: bool = True) -> None:
     args = ["install"]
     if reinstall:

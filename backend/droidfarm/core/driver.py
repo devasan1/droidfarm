@@ -105,6 +105,35 @@ class Driver(abc.ABC):
         """Best-effort GPS spoof. Default no-op; real drivers override."""
         return
 
+    def screencap(self, name: str, adb_port: int | None) -> bytes:
+        """Return a PNG of the phone's current framebuffer, or raise if
+        unavailable (not running, driver can't). Override in subclasses."""
+        raise NotImplementedError("screencap not supported by this driver")
+
+
+def _mock_png(width: int, height: int, color: tuple[int, int, int]) -> bytes:
+    """Minimal flat-color PNG encoder — used by MockDriver so the
+    screenshot endpoint still returns a valid image on non-LDPlayer hosts."""
+    import struct
+    import zlib
+
+    r, g, b = color
+    scanline = b"\x00" + bytes([r, g, b]) * width
+    raw = scanline * height
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data))
+        )
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    idat = zlib.compress(raw)
+    return sig + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+
 
 # ---------- LDPlayer (real Windows driver) ----------
 
@@ -235,6 +264,17 @@ class LDPlayerDriver(Driver):
         """
         self._run("locate", "--name", name, "--LLI", f"{longitude},{latitude}")
 
+    def screencap(self, name: str, adb_port: int | None) -> bytes:
+        """PNG framebuffer via adb exec-out. Fast enough for ~1-2fps
+        thumbnails in the grid."""
+        if adb_port is None:
+            raise RuntimeError(f"{name} is not running — no adb port")
+        from droidfarm.core import adb as adb_mod
+
+        serial = f"127.0.0.1:{adb_port}"
+        adb_mod.connect(serial)
+        return adb_mod.screencap_png(serial)
+
 
 # ---------- Mock driver (Linux dev / CI) ----------
 
@@ -319,6 +359,15 @@ class MockDriver(Driver):
 
     def set_gps(self, name: str, latitude: float, longitude: float) -> None:
         logger.info("[mock] set_gps %s lat=%s lon=%s", name, latitude, longitude)
+
+    def screencap(self, name: str, adb_port: int | None) -> bytes:
+        # Deterministic per-phone color so each mock tile looks distinct.
+        inst = self._phones.get(name)
+        idx = inst.index if inst else 0
+        r = 30 + (idx * 37) % 80
+        g = 50 + (idx * 53) % 80
+        b = 60 + (idx * 71) % 80
+        return _mock_png(270, 480, (r, g, b))
 
 
 # ---------- Selection ----------

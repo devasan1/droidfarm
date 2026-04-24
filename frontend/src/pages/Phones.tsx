@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Play, Plus, RotateCcw, Square, Trash2, Timer } from "lucide-react";
+import { Play, Plus, RotateCcw, Square, Trash2, Timer, Maximize2 } from "lucide-react";
 import clsx from "clsx";
 import { api } from "../lib/api";
 import type { Phone } from "../lib/types";
 import AddPhoneModal from "../components/AddPhoneModal";
 import ConfirmModal from "../components/ConfirmModal";
+import PhoneViewer from "../components/PhoneViewer";
 
 export default function Phones() {
   const [phones, setPhones] = useState<Phone[]>([]);
@@ -101,7 +102,16 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
   const [dragOver, setDragOver] = useState(false);
   const [installMsg, setInstallMsg] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"wipe" | "delete" | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [tick, setTick] = useState(0);
   const uptime = useUptime(phone.status === "running" ? phone.last_started_at : null);
+
+  // Poll a new thumbnail every ~2s while the phone is running.
+  useEffect(() => {
+    if (phone.status !== "running") return;
+    const t = setInterval(() => setTick((x) => x + 1), 2000);
+    return () => clearInterval(t);
+  }, [phone.status]);
 
   async function uploadAndInstall(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.name.toLowerCase().endsWith(".apk"));
@@ -188,9 +198,36 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
         </div>
       )}
 
-      <div className="flex aspect-[9/16] items-center justify-center rounded-md border border-ink-800 bg-ink-950 text-xs text-ink-600">
+      <div
+        className={clsx(
+          "group relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-md border border-ink-800 bg-ink-950 text-xs text-ink-600",
+          phone.status === "running" && "cursor-zoom-in",
+        )}
+        onClick={() => phone.status === "running" && setExpanded(true)}
+      >
         {phone.status === "running" ? (
-          <span>live preview lands next</span>
+          <>
+            <img
+              src={api.screenshotUrl(phone.id, tick)}
+              alt={`${phone.name} preview`}
+              className="h-full w-full object-fill"
+              draggable={false}
+              onError={() => {
+                /* keep prior frame on transient failures */
+              }}
+            />
+            <button
+              type="button"
+              className="absolute right-2 top-2 rounded-md bg-ink-900/80 p-1.5 text-ink-200 opacity-0 backdrop-blur hover:bg-ink-800 group-hover:opacity-100"
+              title="Expand (interactive view)"
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded(true);
+              }}
+            >
+              <Maximize2 size={14} />
+            </button>
+          </>
         ) : (
           <span>{phone.status === "crashed" ? phone.last_error ?? "crashed" : "idle"}</span>
         )}
@@ -281,6 +318,10 @@ function PhoneTile({ phone, onChange }: { phone: Phone; onChange: () => void }) 
           <Trash2 size={14} />
         </button>
       </div>
+
+      {expanded && (
+        <PhoneViewer phone={phone} onClose={() => setExpanded(false)} />
+      )}
 
       <ConfirmModal
         open={confirm === "wipe"}

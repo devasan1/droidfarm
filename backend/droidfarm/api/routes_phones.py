@@ -6,7 +6,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -749,3 +749,124 @@ def install_apk_on_phone(phone_id: int, payload: _InstallApkIn) -> _InstallResul
             ok=False, apk_id=payload.apk_id, phone_id=phone_id,
             filename=apk_filename, error=str(e),
         )
+
+
+# ---------- Live preview + input -------------------------------------------
+
+
+def _running_phone_or_404(phone_id: int) -> tuple[str, int | None, str]:
+    """Return (phone_name, adb_port, status) for a phone that exists, or 404/409."""
+    with session_scope() as s:
+        phone = s.get(Phone, phone_id)
+        if phone is None or phone.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="phone not found")
+        port = (
+            5555 + 2 * phone.ldplayer_index
+            if phone.ldplayer_index is not None
+            else None
+        )
+        return phone.name, port, phone.status
+
+
+@router.get("/{phone_id}/screenshot")
+def phone_screenshot(phone_id: int) -> Response:
+    """Return a PNG snapshot of the phone's current screen.
+
+    Fast enough for the grid to poll at ~1-2fps, and for the full-screen
+    interactive view at ~5fps. Returns 404 if the phone doesn't exist
+    and 409 if it isn't running.
+    """
+    name, port, status = _running_phone_or_404(phone_id)
+    if status != "running":
+        raise HTTPException(
+            status_code=409, detail=f"phone is {status} — cannot screencap"
+        )
+    driver = get_driver()
+    try:
+        png = driver.screencap(name, port)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"screencap failed: {e}"
+        ) from e
+    return Response(
+        content=png,
+        media_type="image/png",
+        # Disable caching — every snapshot is new.
+        headers={"cache-control": "no-store, no-cache, must-revalidate"},
+    )
+
+
+class _TapIn(BaseModel):
+    x: int
+    y: int
+
+
+class _SwipeIn(BaseModel):
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+    duration_ms: int = 120
+
+
+class _TextIn(BaseModel):
+    text: str
+
+
+class _KeyIn(BaseModel):
+    keycode: str | int  # e.g. "KEYCODE_BACK", "KEYCODE_HOME", or 4 / 3
+
+
+def _adb_serial_for(phone_id: int) -> str:
+    name, port, status = _running_phone_or_404(phone_id)
+    if status != "running" or port is None:
+        raise HTTPException(
+            status_code=409, detail=f"phone is {status} — not ready for input"
+        )
+    driver = get_driver()
+    if not getattr(driver, "supports_adb", True):
+        raise HTTPException(
+            status_code=501, detail="current driver does not surface adb"
+        )
+    from droidfarm.core import adb as adb_mod
+
+    serial = f"127.0.0.1:{port}"
+    adb_mod.connect(serial)
+    _ = name  # silence unused
+    return serial
+
+
+@router.post("/{phone_id}/tap", status_code=204)
+def phone_tap(phone_id: int, payload: _TapIn) -> None:
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    adb_mod.input_tap(serial, payload.x, payload.y)
+
+
+@router.post("/{phone_id}/swipe", status_code=204)
+def phone_swipe(phone_id: int, payload: _SwipeIn) -> None:
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    adb_mod.input_swipe(
+        serial, payload.x1, payload.y1, payload.x2, payload.y2, payload.duration_ms
+    )
+
+
+@router.post("/{phone_id}/text", status_code=204)
+def phone_text(phone_id: int, payload: _TextIn) -> None:
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    adb_mod.input_text(serial, payload.text)
+
+
+@router.post("/{phone_id}/keyevent", status_code=204)
+def phone_keyevent(phone_id: int, payload: _KeyIn) -> None:
+    from droidfarm.core import adb as adb_mod
+
+    serial = _adb_serial_for(phone_id)
+    adb_mod.input_keyevent(serial, payload.keycode)
