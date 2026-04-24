@@ -29,7 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-droidfarm = "droidfarm.cli:app"
+droidfarm = "droidfarm.main:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
