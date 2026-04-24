@@ -23,6 +23,7 @@ export interface Proxy {
   latency_ms: number | null;
   created_at: string;
   notes: string;
+  auto_rotate: boolean;
   assigned_to_phone_id: number | null;
   assigned_to_phone_name: string | null;
 }

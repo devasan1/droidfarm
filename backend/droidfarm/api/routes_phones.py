@@ -131,6 +131,7 @@ def _proxy_to_out(p: Proxy | None) -> ProxyOut | None:
         latency_ms=p.latency_ms,
         created_at=p.created_at,
         notes=p.notes,
+        auto_rotate=p.auto_rotate,
         assigned_to_phone_id=p.phone.id if p.phone else None,
         assigned_to_phone_name=p.phone.name if p.phone else None,
     )

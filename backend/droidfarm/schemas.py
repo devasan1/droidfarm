@@ -44,6 +44,9 @@ class ProxyOut(BaseModel):
     latency_ms: int | None
     created_at: datetime
     notes: str
+    # Opt-in: if true and the proxy fails a health check while attached
+    # to a phone, the backend rotates it to a free healthy proxy.
+    auto_rotate: bool = False
     # Which phone is currently holding this proxy (None if free).
     assigned_to_phone_id: int | None
     assigned_to_phone_name: str | None

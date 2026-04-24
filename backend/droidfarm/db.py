@@ -70,6 +70,12 @@ class Proxy(Base):
     # Guarantees uniqueness at the DB level via unique=True on phones.proxy_id.
     notes: Mapped[str] = mapped_column(String, default="", nullable=False)
 
+    # Opt-in auto-rotate: when True AND this proxy is attached to a phone
+    # AND a health check fails, the phone is swapped to a free healthy
+    # proxy from the same country (or any healthy proxy if no country
+    # match). Default FALSE — explicitly user-enabled per proxy row.
+    auto_rotate: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     phone: Mapped[Phone | None] = relationship(back_populates="proxy", uselist=False)
 
 
@@ -175,6 +181,16 @@ def _migrate_in_place() -> None:
             conn.execute(
                 text("ALTER TABLE phones ADD COLUMN fingerprint JSON DEFAULT '{}'")
             )
+    if "proxies" in insp.get_table_names():
+        pcols = {c["name"] for c in insp.get_columns("proxies")}
+        with _engine.begin() as conn:
+            if "auto_rotate" not in pcols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE proxies ADD COLUMN auto_rotate "
+                        "BOOLEAN DEFAULT 0 NOT NULL"
+                    )
+                )
 
 
 @contextmanager

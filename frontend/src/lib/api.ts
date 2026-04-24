@@ -101,6 +101,30 @@ export const api = {
   checkProxy: (id: number) => req<Proxy>(`/api/proxies/${id}/check`, { method: "POST" }),
   checkAllProxies: () =>
     req<{ queued: number }>(`/api/proxies/check-all`, { method: "POST" }),
+  setProxyAutoRotate: (id: number, auto_rotate: boolean) =>
+    req<Proxy>(`/api/proxies/${id}/auto-rotate`, {
+      method: "POST",
+      body: JSON.stringify({ auto_rotate }),
+    }),
+  rotateProxy: (id: number) =>
+    req<{
+      ok: boolean;
+      phone: string;
+      old_proxy: string;
+      new_proxy: string;
+      new_country: string | null;
+    }>(`/api/proxies/${id}/rotate`, { method: "POST" }),
+  proxyStats: () =>
+    req<{
+      total: number;
+      healthy: number;
+      unhealthy: number;
+      in_use: number;
+      free: number;
+      auto_rotate_enabled: number;
+      avg_latency_ms: number | null;
+      last_checked_at: string | null;
+    }>("/api/proxies/stats"),
 
   listApks: () => req<Apk[]>("/api/apks"),
   deleteApk: (id: number) => req<void>(`/api/apks/${id}`, { method: "DELETE" }),

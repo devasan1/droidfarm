@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
-import { Activity, Plus, Trash2, Upload } from "lucide-react";
+import { Activity, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { api } from "../lib/api";
 import type { Proxy } from "../lib/types";
 
+type Stats = Awaited<ReturnType<typeof api.proxyStats>>;
+
 export default function Proxies() {
   const [proxies, setProxies] = useState<Proxy[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [importing, setImporting] = useState(false);
   const [importText, setImportText] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -12,7 +15,12 @@ export default function Proxies() {
 
   async function refresh() {
     try {
-      setProxies(await api.listProxies());
+      const [plist, s] = await Promise.all([
+        api.listProxies(),
+        api.proxyStats(),
+      ]);
+      setProxies(plist);
+      setStats(s);
     } catch (e) {
       setError(String(e));
     }
@@ -86,6 +94,28 @@ export default function Proxies() {
         </div>
       </header>
 
+      {stats && proxies.length > 0 && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+          <StatCard label="Total" value={stats.total} />
+          <StatCard label="Healthy" value={stats.healthy} tone="emerald" />
+          <StatCard label="Unhealthy" value={stats.unhealthy} tone={stats.unhealthy > 0 ? "red" : undefined} />
+          <StatCard label="In use" value={stats.in_use} />
+          <StatCard label="Free" value={stats.free} />
+          <StatCard
+            label="Avg latency"
+            value={stats.avg_latency_ms == null ? "—" : `${stats.avg_latency_ms} ms`}
+          />
+        </div>
+      )}
+
+      {stats && stats.auto_rotate_enabled > 0 && (
+        <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-300">
+          Auto-rotate is ON for {stats.auto_rotate_enabled} of {stats.total} proxies.
+          When a health check fails, the assigned phone swaps to the next free healthy
+          proxy (same country preferred). Toggle per-row below.
+        </div>
+      )}
+
       {feedback && (
         <div className="mb-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-sm text-emerald-300">
           {feedback}
@@ -117,6 +147,9 @@ export default function Proxies() {
                 <th className="px-4 py-2">Host:Port</th>
                 <th className="px-4 py-2">Country / City</th>
                 <th className="px-4 py-2">Assigned to</th>
+                <th className="px-4 py-2 text-center" title="Opt-in: rotate this proxy automatically on next failed health check">
+                  Auto-rotate
+                </th>
                 <th className="px-4 py-2 text-right" />
               </tr>
             </thead>
@@ -149,7 +182,39 @@ export default function Proxies() {
                       <span className="text-ink-500">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-2 text-center">
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-ink-300">
+                      <input
+                        type="checkbox"
+                        checked={p.auto_rotate}
+                        onChange={async (e) => {
+                          try {
+                            await api.setProxyAutoRotate(p.id, e.target.checked);
+                            refresh();
+                          } catch (err) { setError(String(err)); }
+                        }}
+                      />
+                      {p.auto_rotate ? "on" : "off"}
+                    </label>
+                  </td>
                   <td className="px-4 py-2 text-right">
+                    <button
+                      className="btn-ghost"
+                      title="Rotate this proxy to a free healthy one (same country preferred)"
+                      disabled={p.assigned_to_phone_id === null}
+                      onClick={async () => {
+                        try {
+                          const r = await api.rotateProxy(p.id);
+                          setFeedback(
+                            `${r.phone}: ${r.old_proxy} → ${r.new_proxy}` +
+                            (r.new_country ? ` (${r.new_country})` : ""),
+                          );
+                          refresh();
+                        } catch (e) { setError(String(e)); }
+                      }}
+                    >
+                      <RefreshCw size={14} />
+                    </button>
                     <button
                       className="btn-ghost"
                       title="Health-check this proxy"
@@ -213,6 +278,29 @@ export default function Proxies() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone?: "emerald" | "red";
+}) {
+  const toneCls =
+    tone === "emerald"
+      ? "text-emerald-300"
+      : tone === "red"
+        ? "text-red-300"
+        : "text-ink-100";
+  return (
+    <div className="card px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wide text-ink-500">{label}</div>
+      <div className={`mt-1 text-xl font-semibold ${toneCls}`}>{value}</div>
     </div>
   );
 }
