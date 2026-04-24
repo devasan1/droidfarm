@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { Smartphone, Globe2, Package, Trash2, Settings as SettingsIcon, Clock } from "lucide-react";
+import { api } from "./lib/api";
 
 export default function App() {
   return (
@@ -17,13 +19,58 @@ export default function App() {
           <Nav to="/schedules" icon={<Clock size={16} />}>Schedules</Nav>
           <Nav to="/settings" icon={<SettingsIcon size={16} />}>Settings</Nav>
         </nav>
-        <div className="mt-auto px-2 text-[11px] text-ink-500">
+        <DriverBadge />
+        <div className="mt-2 px-2 text-[11px] text-ink-500">
           v0.1.0 · {new Date().getFullYear()}
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
+    </div>
+  );
+}
+
+function DriverBadge() {
+  const [info, setInfo] = useState<{ mock: boolean; ldconsole: string | null } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api
+      .health()
+      .then((h) => {
+        if (alive) setInfo({ mock: h.mock_driver, ldconsole: h.ldconsole });
+      })
+      .catch(() => {
+        /* health failed; show nothing */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (!info) {
+    return <div className="mt-auto" />;
+  }
+  if (info.mock) {
+    return (
+      <NavLink
+        to="/settings"
+        title="Phones will be virtual stubs until LDPlayer is detected. Click to open Settings."
+        className="mt-auto mx-2 mb-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-tight text-amber-300 hover:bg-amber-500/15"
+      >
+        <div className="font-medium">Driver: Mock</div>
+        <div className="text-amber-300/70">LDPlayer not found · click to setup</div>
+      </NavLink>
+    );
+  }
+  return (
+    <div
+      title={info.ldconsole ?? ""}
+      className="mt-auto mx-2 mb-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1.5 text-[11px] leading-tight text-emerald-300"
+    >
+      <div className="font-medium">Driver: LDPlayer</div>
+      <div className="truncate text-emerald-300/60" title={info.ldconsole ?? ""}>
+        {info.ldconsole ?? ""}
+      </div>
     </div>
   );
 }
