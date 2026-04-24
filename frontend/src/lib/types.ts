@@ -74,6 +74,8 @@ export interface PhoneIn {
   bypass_ip?: boolean;
   show_setup_wizard?: boolean;
   preinstall_apks?: number[];
+  geo_override_country?: string | null;
+  geo_override_city?: string | null;
 }
 
 export interface HostGeo {

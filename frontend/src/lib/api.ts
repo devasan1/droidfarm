@@ -36,6 +36,11 @@ export const api = {
   startPhone: (id: number) => req<Phone>(`/api/phones/${id}/start`, { method: "POST" }),
   stopPhone: (id: number) => req<Phone>(`/api/phones/${id}/stop`, { method: "POST" }),
   wipePhone: (id: number) => req<Phone>(`/api/phones/${id}/wipe`, { method: "POST" }),
+  geoCountries: () => req<string[]>("/api/phones/geo-countries"),
+  geoCities: (country: string) =>
+    req<{ name: string; country: string; latitude: number; longitude: number; timezone: string }[]>(
+      `/api/phones/geo-cities?country=${encodeURIComponent(country)}`,
+    ),
   installApkOnPhone: (phoneId: number, apkId: number) =>
     req<{ ok: boolean; filename: string; error: string | null }>(
       `/api/phones/${phoneId}/install-apk`,

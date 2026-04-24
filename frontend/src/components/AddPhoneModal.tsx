@@ -26,18 +26,38 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bypass-IP geo override.
+  const [overrideCountry, setOverrideCountry] = useState<string>("");
+  const [overrideCity, setOverrideCity] = useState<string>("");
+  const [countries, setCountries] = useState<string[]>([]);
+  const [cities, setCities] = useState<
+    { name: string; latitude: number; longitude: number; timezone: string }[]
+  >([]);
 
   useEffect(() => {
     api.listProxies().then(setProxies).catch(() => {});
     api.listPhones().then(setExistingPhones).catch(() => {});
   }, []);
 
-  // Lazy-load host geo the first time the user picks "bypass".
+  // Lazy-load host geo + curated country list the first time the user picks "bypass".
   useEffect(() => {
     if (proxyChoice === "bypass" && hostGeo === null) {
       api.hostGeo().then(setHostGeo).catch(() => setHostGeo({ ok: false, error: "unreachable", ip: null, country: null, region: null, city: null, latitude: null, longitude: null, timezone: null, provider: null }));
     }
-  }, [proxyChoice, hostGeo]);
+    if (proxyChoice === "bypass" && countries.length === 0) {
+      api.geoCountries().then(setCountries).catch(() => {});
+    }
+  }, [proxyChoice, hostGeo, countries.length]);
+
+  // When the override country changes, refresh the city list for it.
+  useEffect(() => {
+    setOverrideCity("");
+    if (!overrideCountry) {
+      setCities([]);
+      return;
+    }
+    api.geoCities(overrideCountry).then(setCities).catch(() => setCities([]));
+  }, [overrideCountry]);
 
   // Default name: phone-NN with NN = first free slot
   useEffect(() => {
@@ -74,6 +94,12 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
         auto_assign_proxy: proxyChoice === "auto",
         bypass_ip: proxyChoice === "bypass",
         show_setup_wizard: showSetupWizard,
+        geo_override_country:
+          proxyChoice === "bypass" && overrideCountry ? overrideCountry : null,
+        geo_override_city:
+          proxyChoice === "bypass" && overrideCountry && overrideCity
+            ? overrideCity
+            : null,
       });
       onCreated(phone);
     } catch (e) {
@@ -226,6 +252,62 @@ export default function AddPhoneModal({ onClose, onCreated }: Props) {
                     <div><span className="text-ink-500">provider:</span> {hostGeo.provider ?? "?"}</div>
                   </div>
                 )}
+
+                <div className="mt-3 border-t border-ink-800 pt-3">
+                  <div className="mb-1 font-medium text-ink-100">
+                    Override phone location (optional)
+                  </div>
+                  <p className="mb-2 text-ink-400">
+                    Phone egresses through the VM&apos;s real IP either way.
+                    Set this to pin locale / timezone / GPS to a different
+                    country + city so the phone <i>feels like</i> it&apos;s
+                    there.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      className="input"
+                      value={overrideCountry}
+                      onChange={(e) => setOverrideCountry(e.target.value)}
+                    >
+                      <option value="">— use VM&apos;s own location —</option>
+                      {countries.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="input"
+                      value={overrideCity}
+                      onChange={(e) => setOverrideCity(e.target.value)}
+                      disabled={!overrideCountry}
+                    >
+                      <option value="">
+                        {overrideCountry
+                          ? cities.length === 0
+                            ? "— no cities curated —"
+                            : "— country default (capital) —"
+                          : "— pick country first —"}
+                      </option>
+                      {cities.map((c) => (
+                        <option key={c.name} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {overrideCountry && (
+                    <div className="mt-1 text-ink-400">
+                      Phone will appear as{" "}
+                      <span className="text-ink-200">
+                        {overrideCity ? `${overrideCity}, ` : ""}
+                        {overrideCountry}
+                      </span>
+                      . Network traffic still exits through the VM&apos;s
+                      real IP.
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             {proxyChoice !== "bypass" && (

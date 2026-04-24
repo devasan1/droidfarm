@@ -74,6 +74,12 @@ class PhoneIn(BaseModel):
     # (pick any free row), or neither (phone runs with no proxy).
     proxy_id: int | None = None
     auto_assign_proxy: bool = False
+    # Optional overrides only used when bypass_ip=True (proxy_mode='none').
+    # Leave empty to use the VM's own real geo from ipapi.co; set to pin
+    # the phone's locale/timezone/GPS to a specific country + city while
+    # still egressing through the VM's real IP.
+    geo_override_country: str | None = None
+    geo_override_city: str | None = None
     # When True, explicitly skip the proxy and use the host VM's own egress.
     # Geo is seeded from the host's public-IP geoIP so locale/timezone/GPS
     # stay consistent with what apps see at the network layer. Overrides

@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from droidfarm.config import SETTINGS
 from droidfarm.core.driver import LaunchOptions, get_driver
+from droidfarm.core.cities import all_countries, cities_for, find_city
 from droidfarm.core.geoip import lookup_host_geo
 from droidfarm.core.locales import locale_and_tz_for
 from droidfarm.core.templates import (
@@ -24,6 +25,28 @@ from droidfarm.schemas import PhoneIn, PhoneOut, ProxyOut
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/phones", tags=["phones"])
+
+
+@router.get("/geo-countries")
+def list_geo_countries() -> list[str]:
+    """Countries we have curated city coordinates for (for Bypass-IP
+    override dropdown)."""
+    return all_countries()
+
+
+@router.get("/geo-cities")
+def list_geo_cities(country: str) -> list[dict]:
+    """Cities in the given country with lat/lon + timezone."""
+    return [
+        {
+            "name": c.name,
+            "country": c.country,
+            "latitude": c.latitude,
+            "longitude": c.longitude,
+            "timezone": c.timezone,
+        }
+        for c in cities_for(country)
+    ]
 
 
 @router.get("/host-geo")
@@ -325,10 +348,35 @@ def _geo_overrides_from_proxy(p: Proxy | None) -> dict:
     return _fill_locale_defaults(d)
 
 
-def _geo_overrides_for_bypass() -> dict:
-    """Geo overrides for 'no proxy / bypass' mode — look up the host VM's
-    public IP and pin that country/city/timezone/GPS onto the phone so the
-    phone is consistent with the host's own egress."""
+def _geo_overrides_for_bypass(
+    override_country: str | None = None,
+    override_city: str | None = None,
+) -> dict:
+    """Geo overrides for 'no proxy / bypass' mode.
+
+    Default: look up the VM's public IP with ipapi.co and use that geo —
+    locale/timezone/GPS stay consistent with what apps see at the
+    network layer.
+
+    Override: if the caller passes ``override_country`` / ``override_city``,
+    the phone's locale/timezone/GPS are pinned to that location instead,
+    while network traffic STILL exits through the VM's real IP. Useful
+    when you want 'feels like London' while egressing from a us-central1
+    GCP VM.
+    """
+    if override_country:
+        city = (
+            find_city(override_country, override_city) if override_city else None
+        )
+        d: dict = {"country": override_country}
+        if override_city:
+            d["city"] = override_city
+        if city is not None:
+            d["latitude"] = city.latitude
+            d["longitude"] = city.longitude
+            d["timezone"] = city.timezone
+        return _fill_locale_defaults(d)
+
     g = lookup_host_geo()
     if not g.ok:
         logger.warning("host geoIP lookup failed: %s", g.error)
@@ -369,7 +417,10 @@ def create_phone(payload: PhoneIn) -> PhoneOut:
         if proxy is not None:
             geo = _geo_overrides_from_proxy(proxy)
         elif bypass:
-            geo = _geo_overrides_for_bypass()
+            geo = _geo_overrides_for_bypass(
+                override_country=payload.geo_override_country,
+                override_city=payload.geo_override_city,
+            )
         else:
             geo = {}
 
