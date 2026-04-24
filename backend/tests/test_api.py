@@ -56,10 +56,11 @@ def test_proxy_import_and_phone_creation() -> None:
     assert first["host"] == "10.0.0.1"
     assert first["assigned_to_phone_id"] is None
 
-    # Create a phone, auto-assign a proxy.
+    # Create a phone, auto-assign a proxy (autostart=False so the status
+    # stays deterministic during the test).
     r = client.post(
         "/api/phones",
-        json={"name": "phone-01", "auto_assign_proxy": True},
+        json={"name": "phone-01", "auto_assign_proxy": True, "autostart": False},
     )
     assert r.status_code == 201, r.text
     phone = r.json()
@@ -69,7 +70,7 @@ def test_proxy_import_and_phone_creation() -> None:
     # A second phone must get a *different* proxy.
     r = client.post(
         "/api/phones",
-        json={"name": "phone-02", "auto_assign_proxy": True},
+        json={"name": "phone-02", "auto_assign_proxy": True, "autostart": False},
     )
     assert r.status_code == 201
     phone2 = r.json()
@@ -78,17 +79,17 @@ def test_proxy_import_and_phone_creation() -> None:
     # Trying to reserve an already-taken proxy must fail.
     r = client.post(
         "/api/phones",
-        json={"name": "phone-03", "proxy_id": phone["proxy"]["id"]},
+        json={"name": "phone-03", "proxy_id": phone["proxy"]["id"], "autostart": False},
     )
     assert r.status_code == 409
 
     # Duplicate phone name must fail.
-    r = client.post("/api/phones", json={"name": "phone-01"})
+    r = client.post("/api/phones", json={"name": "phone-01", "autostart": False})
     assert r.status_code == 409
 
 
 def test_lifecycle_transitions() -> None:
-    r = client.post("/api/phones", json={"name": "phone-99"})
+    r = client.post("/api/phones", json={"name": "phone-99", "autostart": False})
     phone_id = r.json()["id"]
     assert r.json()["status"] == "stopped"
 

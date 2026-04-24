@@ -1,12 +1,18 @@
-"""Phone CRUD + lifecycle (stubs — driver wiring lands in the next commit)."""
+"""Phone CRUD + lifecycle."""
 
 from __future__ import annotations
+
+import logging
+import threading
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
+from droidfarm.core.driver import LaunchOptions, get_driver
 from droidfarm.db import Phone, Proxy, session_scope
 from droidfarm.schemas import PhoneIn, PhoneOut, ProxyOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/phones", tags=["phones"])
 
@@ -91,6 +97,88 @@ def _reserve_proxy(session, phone_in: PhoneIn) -> Proxy | None:
     return None
 
 
+def _launch_opts(phone: Phone) -> LaunchOptions:
+    opts = LaunchOptions(
+        resolution=phone.resolution,
+        dpi=phone.dpi,
+        cpu=phone.cpu,
+        ram_mb=phone.ram_mb,
+    )
+    if phone.proxy_mode == "system-http" and phone.proxy is not None:
+        opts.proxy = f"{phone.proxy.host}:{phone.proxy.port}"
+    go = phone.geo_overrides or {}
+    opts.locale = go.get("locale")
+    opts.timezone = go.get("timezone")
+    opts.imei = go.get("imei")
+    opts.manufacturer = go.get("manufacturer")
+    opts.model = go.get("model")
+    return opts
+
+
+def _start_in_background(phone_id: int) -> None:
+    """Kick off the driver-level create+start for a phone in a worker thread.
+
+    The DB is updated from inside the worker so the UI's poll loop sees the
+    status transitions stopped → starting → running (or crashed on failure).
+    """
+
+    def _worker() -> None:
+        driver = get_driver()
+        try:
+            with session_scope() as s:
+                phone = s.get(Phone, phone_id)
+                if phone is None:
+                    return
+                name = phone.name
+                opts = _launch_opts(phone)
+
+            # Ensure the LDPlayer instance exists (create is idempotent for MockDriver;
+            # real LDPlayer will error if you add an existing name, so we check first).
+            existing = next((i for i in driver.list() if i.name == name), None)
+            if existing is None:
+                driver.create(name, opts)
+            else:
+                driver.modify(name, opts)
+
+            inst = driver.start(name, opts)
+            with session_scope() as s:
+                phone = s.get(Phone, phone_id)
+                if phone is None:
+                    return
+                phone.status = "running"
+                phone.ldplayer_index = inst.index
+                phone.last_error = None
+        except Exception as e:
+            logger.exception("start phone %s failed", phone_id)
+            with session_scope() as s:
+                phone = s.get(Phone, phone_id)
+                if phone is not None:
+                    phone.status = "crashed"
+                    phone.last_error = str(e)
+
+    threading.Thread(target=_worker, name=f"start-phone-{phone_id}", daemon=True).start()
+
+
+def _stop_in_background(phone_id: int) -> None:
+    def _worker() -> None:
+        driver = get_driver()
+        with session_scope() as s:
+            phone = s.get(Phone, phone_id)
+            if phone is None:
+                return
+            name = phone.name
+        try:
+            driver.stop(name)
+        except Exception as e:
+            logger.warning("stop phone %s failed: %s", name, e)
+        with session_scope() as s:
+            phone = s.get(Phone, phone_id)
+            if phone is not None:
+                phone.status = "stopped"
+
+    threading.Thread(target=_worker, name=f"stop-phone-{phone_id}", daemon=True).start()
+
+
 @router.post("", response_model=PhoneOut, status_code=201)
 def create_phone(payload: PhoneIn) -> PhoneOut:
     with session_scope() as s:
@@ -113,7 +201,31 @@ def create_phone(payload: PhoneIn) -> PhoneOut:
         )
         s.add(phone)
         s.flush()
-        return _phone_to_out(phone)
+        phone_id = phone.id
+        out = _phone_to_out(phone)
+
+    # Always create the underlying LDPlayer instance so it shows up in the
+    # emulator manager. Start it only when autostart=True.
+    driver = get_driver()
+    with session_scope() as s2:
+        phone2 = s2.get(Phone, phone_id)
+        if phone2 is not None:
+            opts = _launch_opts(phone2)
+            existing = next((i for i in driver.list() if i.name == phone2.name), None)
+            if existing is None:
+                inst = driver.create(phone2.name, opts)
+                phone2.ldplayer_index = inst.index
+            else:
+                phone2.ldplayer_index = existing.index
+                driver.modify(phone2.name, opts)
+    if payload.autostart:
+        with session_scope() as s3:
+            phone3 = s3.get(Phone, phone_id)
+            if phone3 is not None:
+                phone3.status = "starting"
+        _start_in_background(phone_id)
+
+    return out
 
 
 @router.get("", response_model=list[PhoneOut])
@@ -138,12 +250,20 @@ def delete_phone(phone_id: int) -> None:
         phone = s.get(Phone, phone_id)
         if phone is None:
             raise HTTPException(status_code=404, detail="phone not found")
+        name = phone.name
         s.delete(phone)
+
+    # Best-effort cleanup of the underlying LDPlayer instance.
+    try:
+        driver = get_driver()
+        driver.stop(name)
+        driver.destroy(name)
+    except Exception as e:
+        logger.warning("driver cleanup for %s failed (ignored): %s", name, e)
 
 
 @router.post("/{phone_id}/start", response_model=PhoneOut)
 def start_phone(phone_id: int) -> PhoneOut:
-    """Mark the phone as 'starting' — driver integration lands in the next commit."""
     with session_scope() as s:
         phone = s.get(Phone, phone_id)
         if phone is None:
@@ -151,7 +271,9 @@ def start_phone(phone_id: int) -> PhoneOut:
         phone.status = "starting"
         phone.last_error = None
         s.flush()
-        return _phone_to_out(phone)
+        out = _phone_to_out(phone)
+    _start_in_background(phone_id)
+    return out
 
 
 @router.post("/{phone_id}/stop", response_model=PhoneOut)
@@ -162,4 +284,6 @@ def stop_phone(phone_id: int) -> PhoneOut:
             raise HTTPException(status_code=404, detail="phone not found")
         phone.status = "stopping"
         s.flush()
-        return _phone_to_out(phone)
+        out = _phone_to_out(phone)
+    _stop_in_background(phone_id)
+    return out
