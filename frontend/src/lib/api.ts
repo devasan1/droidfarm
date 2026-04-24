@@ -112,4 +112,23 @@ export const api = {
     if (!r.ok) throw new Error(await r.text());
     return (await r.json()) as Apk;
   },
+  // Catalog of common apps users want to pre-load.
+  listCatalog: () =>
+    req<
+      {
+        slug: string;
+        display_name: string;
+        package: string;
+        category: string;
+        description: string;
+        source_url: string;
+        homepage_url: string;
+        installed: boolean;
+      }[]
+    >("/api/apks/catalog"),
+  fetchCatalogApk: (slug: string, url: string, filename?: string) =>
+    req<Apk>(`/api/apks/catalog/${slug}/fetch`, {
+      method: "POST",
+      body: JSON.stringify({ url, filename }),
+    }),
 };

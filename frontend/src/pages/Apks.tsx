@@ -1,20 +1,39 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Package, Trash2, Upload } from "lucide-react";
 import { api } from "../lib/api";
 import type { Apk, Phone } from "../lib/types";
+
+interface CatalogEntry {
+  slug: string;
+  display_name: string;
+  package: string;
+  category: string;
+  description: string;
+  source_url: string;
+  homepage_url: string;
+  installed: boolean;
+}
 
 export default function Apks() {
   const [apks, setApks] = useState<Apk[]>([]);
   const [phones, setPhones] = useState<Phone[]>([]);
+  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [fetchingSlug, setFetchingSlug] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   async function refresh() {
     try {
-      const [a, p] = await Promise.all([api.listApks(), api.listPhones()]);
+      const [a, p, c] = await Promise.all([
+        api.listApks(),
+        api.listPhones(),
+        api.listCatalog(),
+      ]);
       setApks(a);
       setPhones(p);
+      setCatalog(c);
     } catch (e) {
       setError(String(e));
     }
@@ -64,6 +83,29 @@ export default function Apks() {
     refresh();
   }
 
+  async function fetchFromCatalog(entry: CatalogEntry) {
+    const url = window.prompt(
+      `Paste a direct-download .apk URL for ${entry.display_name}.\n\n` +
+        `Tip: open the "Source page" link and grab the current version's direct APK download URL ` +
+        `from APKMirror / APKPure / your own mirror.\n\n` +
+        `DroidFarm will download it to the library and tag it with package ${entry.package}.`,
+      "",
+    );
+    if (!url) return;
+    setFetchingSlug(entry.slug);
+    setFlash(null);
+    try {
+      await api.fetchCatalogApk(entry.slug, url.trim());
+      setFlash(`added ${entry.display_name} to library`);
+      refresh();
+    } catch (ex) {
+      setError(String(ex));
+    } finally {
+      setFetchingSlug(null);
+      setTimeout(() => setFlash(null), 4000);
+    }
+  }
+
   async function remove(a: Apk) {
     if (!window.confirm(`Delete ${a.filename}?`)) return;
     try {
@@ -83,17 +125,101 @@ export default function Apks() {
             Drop APKs here once; install them onto any phone with one click.
           </p>
         </div>
-        <label className="btn-primary cursor-pointer">
-          <Upload size={16} /> Upload APK
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".apk"
-            className="hidden"
-            onChange={onPick}
-          />
-        </label>
+        <div className="flex items-center gap-2">
+          <button
+            className="btn-secondary"
+            onClick={() => setShowCatalog((v) => !v)}
+          >
+            <Package size={16} /> {showCatalog ? "Hide catalog" : "Add from catalog"}
+          </button>
+          <label className="btn-primary cursor-pointer">
+            <Upload size={16} /> Upload APK
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".apk"
+              className="hidden"
+              onChange={onPick}
+            />
+          </label>
+        </div>
       </header>
+
+      {showCatalog && (
+        <div className="card mb-4 p-5">
+          <div className="mb-3 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-ink-50">Common apps catalog</h2>
+              <p className="text-sm text-ink-400">
+                Pre-load TikTok / Instagram / YouTube / Facebook / etc. Click
+                <span className="mx-1 inline-flex items-center gap-0.5 rounded bg-ink-800 px-1.5 py-0.5 text-xs text-ink-200">
+                  <ExternalLink size={10} /> Source page
+                </span>
+                to grab the direct-download URL (APKMirror is the usual one),
+                then paste it into{" "}
+                <span className="mx-1 inline-flex items-center gap-0.5 rounded bg-ink-800 px-1.5 py-0.5 text-xs text-ink-200">
+                  <Download size={10} /> Fetch
+                </span>
+                — DroidFarm grabs the APK into the library.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {catalog.map((entry) => (
+              <div
+                key={entry.slug}
+                className="flex items-start justify-between gap-3 rounded-lg border border-ink-800 bg-ink-900/50 p-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-ink-100">
+                      {entry.display_name}
+                    </span>
+                    {entry.installed && (
+                      <span
+                        className="chip flex items-center gap-1 text-emerald-300"
+                        title="already in library"
+                      >
+                        <CheckCircle2 size={10} /> in library
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-xs text-ink-500">
+                    {entry.category} · {entry.package}
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-xs text-ink-400">
+                    {entry.description}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <a
+                    className="btn-ghost text-xs"
+                    href={entry.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="open APKMirror page"
+                  >
+                    <ExternalLink size={12} /> Source
+                  </a>
+                  <button
+                    className="btn-secondary text-xs"
+                    disabled={fetchingSlug === entry.slug}
+                    onClick={() => fetchFromCatalog(entry)}
+                  >
+                    <Download size={12} />
+                    {fetchingSlug === entry.slug ? "…" : "Fetch"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-ink-500">
+            Why no one-click downloads? Google Play APKs aren't ours to redistribute.
+            Opening the source page in your browser and pasting the direct URL keeps
+            this clean + always serves you the latest version.
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 p-2 text-sm text-red-300">
