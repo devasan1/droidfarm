@@ -24,16 +24,27 @@ A desktop control plane for running **multiple Android emulators** on your Windo
 
 ## Quick start (Windows)
 
-```powershell
-git clone https://github.com/devasan1/droidfarm.git
-cd droidfarm
-.\scripts\install.ps1   # python, node, rust toolchain, adb, tun2socks, LDPlayer
-.\scripts\start.ps1     # build + launch
-```
-
-DroidFarm opens to a blank grid. Click **+ Add phone**, point it at a proxy (or paste a list into Proxies first), and wait ~60s for the first phone to boot.
+Double-click **`DroidFarm.bat`**. First run installs Python 3.11, Node 20, Git, LDPlayer 9, then builds the frontend and boots the backend. Subsequent launches take ~3 seconds.
 
 See **[`docs/gcp-setup.md`](docs/gcp-setup.md)** if you're hosting on GCP — nested virt is a prerequisite.
+
+## Quick start (Linux / macOS)
+
+```bash
+git clone https://github.com/devasan1/droidfarm.git
+cd droidfarm
+./droidfarm.sh
+```
+
+or with Docker:
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:7870. Details (including redroid driver for real Android instances on Linux): **[`docs/linux-setup.md`](docs/linux-setup.md)**.
+
+DroidFarm opens to a blank grid. Click **+ Add phone**, point it at a proxy (or paste a list into Proxies first), and wait ~60s for the first phone to boot.
 
 ## Proxies
 

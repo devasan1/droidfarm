@@ -1,0 +1,49 @@
+# =============================================================
+#  DroidFarm — docker compose
+#
+#  Usage:
+#      docker compose up            # backend + frontend only
+#      docker compose --profile redroid up   # +1 redroid phone
+#
+#  Once running, open http://localhost:7870 in your browser.
+#  Data (SQLite DB + APKs + templates) is persisted in the
+#  `droidfarm-data` named volume.
+# =============================================================
+
+services:
+  droidfarm:
+    build: .
+    image: droidfarm:local
+    container_name: droidfarm
+    restart: unless-stopped
+    ports:
+      - "7870:7870"
+    volumes:
+      - droidfarm-data:/data
+    environment:
+      # On Linux, LDPlayer doesn't exist. Leave mock=1 to just run the
+      # UI without real phones, or set DROIDFARM_DRIVER=redroid and add
+      # redroid services via the profile below.
+      DROIDFARM_MOCK: "1"
+      DROIDFARM_HOST: "0.0.0.0"
+      DROIDFARM_PORT: "7870"
+
+  # Optional redroid phone. Enable with: docker compose --profile redroid up
+  # Needs the host kernel to have binder + ashmem modules (most modern
+  # Linux kernels do). See docs/linux-setup.md for setup notes.
+  redroid-01:
+    image: redroid/redroid:13.0.0-latest
+    container_name: redroid-01
+    profiles: ["redroid"]
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "5555:5555"  # adb
+    volumes:
+      - redroid-01-data:/data
+    # ARM translation makes Play-Store apps run on x86 hosts.
+    command: ["androidboot.redroid_gpu_mode=guest"]
+
+volumes:
+  droidfarm-data:
+  redroid-01-data:

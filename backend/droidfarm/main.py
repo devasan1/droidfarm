@@ -44,11 +44,21 @@ def create_app() -> FastAPI:
     app.include_router(proxies_router)
     app.include_router(apks_router)
 
-    # Serve the built React frontend at / (production bundle). The bat
-    # launcher runs `npm run build` in frontend/ before booting the backend,
-    # so frontend/dist is expected to exist. When it doesn't (e.g. pure
-    # backend dev), we return a helpful placeholder so health still works.
-    dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    # Serve the built React frontend at / (production bundle). The bat/
+    # shell launcher runs `npm run build` in frontend/ before booting
+    # the backend, so frontend/dist is expected to exist. When it
+    # doesn't (e.g. pure backend dev), we return a helpful placeholder
+    # so health still works.
+    #
+    # The launchers can also pin the dist path via DROIDFARM_STATIC_DIR
+    # (useful for docker-compose + linux droidfarm.sh where the repo
+    # layout at runtime may not match the build-tree relative guess).
+    import os
+    static_env = os.environ.get("DROIDFARM_STATIC_DIR")
+    if static_env:
+        dist = Path(static_env)
+    else:
+        dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     if dist.is_dir():
         app.mount(
             "/assets",
