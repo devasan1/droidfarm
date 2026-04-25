@@ -45,7 +45,16 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => req<{ ok: boolean; mock_driver: boolean; ldconsole: string | null }>("/api/health"),
+  health: () =>
+    req<{
+      ok: boolean;
+      mock_driver: boolean;
+      driver: "ldplayer" | "android_emulator" | "mock";
+      ldconsole: string | null;
+      android_sdk: string | null;
+      adb: string;
+      platform: string;
+    }>("/api/health"),
 
   listPhones: () => req<Phone[]>("/api/phones"),
   hostGeo: () => req<HostGeo>("/api/phones/host-geo"),

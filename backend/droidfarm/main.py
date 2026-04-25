@@ -100,8 +100,13 @@ def create_app() -> FastAPI:
         logger.info("mock driver: %s", SETTINGS.mock_driver)
         if SETTINGS.ldconsole_path:
             logger.info("ldconsole: %s", SETTINGS.ldconsole_path)
-        else:
-            logger.warning("ldconsole.exe not found; running with mock driver")
+        if SETTINGS.android_sdk_path:
+            logger.info("android sdk: %s", SETTINGS.android_sdk_path)
+        if not SETTINGS.ldconsole_path and not SETTINGS.android_sdk_path:
+            logger.warning(
+                "no real driver detected (no LDPlayer, no Android SDK); "
+                "running with mock driver"
+            )
         _resume_autostart_phones()
         start_scheduler()
 

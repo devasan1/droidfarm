@@ -16,7 +16,9 @@ export default function Settings() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [health, setHealth] = useState<{
     mock_driver: boolean;
+    driver: "ldplayer" | "android_emulator" | "mock";
     ldconsole: string | null;
+    android_sdk: string | null;
     adb: string;
     platform: string;
   } | null>(null);
@@ -26,9 +28,11 @@ export default function Settings() {
       .then((h) =>
         setHealth({
           mock_driver: h.mock_driver,
+          driver: h.driver,
           ldconsole: h.ldconsole,
-          adb: (h as unknown as { adb?: string }).adb ?? "",
-          platform: (h as unknown as { platform?: string }).platform ?? "",
+          android_sdk: h.android_sdk,
+          adb: h.adb ?? "",
+          platform: h.platform ?? "",
         }),
       )
       .catch(() => {
@@ -93,14 +97,14 @@ export default function Settings() {
       {health && (
         <div className="card mb-4 p-5">
           <h2 className="mb-2 text-lg font-semibold text-ink-50">Driver</h2>
-          {health.mock_driver ? (
+          {health.driver === "mock" ? (
             <>
               <p className="mb-2 text-sm text-amber-300">
                 Currently using the <strong>mock driver</strong> — phones are
                 virtual stubs and don't surface adb, screenshots, or input.
               </p>
               <p className="mb-3 text-sm text-ink-400">
-                To drive real Android emulators, install LDPlayer 9 from{" "}
+                <strong>On Windows:</strong> install LDPlayer 9 from{" "}
                 <a
                   href="https://www.ldplayer.net/"
                   target="_blank"
@@ -108,23 +112,40 @@ export default function Settings() {
                   className="text-emerald-400 underline"
                 >
                   ldplayer.net
-                </a>{" "}
-                and relaunch DroidFarm. We auto-detect <code>ldconsole.exe</code>{" "}
-                under <code>C:\</code>, <code>D:\</code>, <code>E:\</code> on
-                start. If you've installed it somewhere else, set the env var{" "}
-                <code>DROIDFARM_LDCONSOLE</code> to the full path before
-                launching.
+                </a>
+                . We auto-detect <code>ldconsole.exe</code> under{" "}
+                <code>C:\</code>, <code>D:\</code>, <code>E:\</code>. To force
+                a custom path, set <code>DROIDFARM_LDCONSOLE</code>.
+              </p>
+              <p className="mb-3 text-sm text-ink-400">
+                <strong>On macOS / Linux:</strong> run{" "}
+                <code>mac/setup.sh</code> (Mac) to install Google's Android
+                SDK + a factory AVD. We auto-detect the SDK at{" "}
+                <code>~/Library/Android/sdk</code> (macOS) or{" "}
+                <code>~/Android/Sdk</code> (Linux). Override with{" "}
+                <code>DROIDFARM_ANDROID_SDK</code>.
               </p>
             </>
+          ) : health.driver === "android_emulator" ? (
+            <p className="mb-2 text-sm text-emerald-300">
+              Google Android Emulator driver active. Apps run native ARM on
+              Apple Silicon (HVF) or accelerated x86 on Intel/AMD (KVM/HAXM).
+            </p>
           ) : (
             <p className="mb-2 text-sm text-emerald-300">
               LDPlayer driver active.
             </p>
           )}
           <div className="grid grid-cols-[120px_1fr] gap-y-1 text-xs text-ink-400">
+            <div>driver</div>
+            <div className="font-mono text-ink-200">{health.driver}</div>
             <div>ldconsole</div>
             <div className="font-mono text-ink-200">
               {health.ldconsole ?? "(not found)"}
+            </div>
+            <div>android_sdk</div>
+            <div className="font-mono text-ink-200">
+              {health.android_sdk ?? "(not found)"}
             </div>
             <div>adb</div>
             <div className="font-mono text-ink-200">{health.adb}</div>
