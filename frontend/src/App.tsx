@@ -31,14 +31,27 @@ export default function App() {
   );
 }
 
+type DriverInfo = {
+  mock: boolean;
+  driver: "ldplayer" | "android_emulator" | "mock";
+  ldconsole: string | null;
+  androidSdk: string | null;
+};
+
 function DriverBadge() {
-  const [info, setInfo] = useState<{ mock: boolean; ldconsole: string | null } | null>(null);
+  const [info, setInfo] = useState<DriverInfo | null>(null);
   useEffect(() => {
     let alive = true;
     api
       .health()
       .then((h) => {
-        if (alive) setInfo({ mock: h.mock_driver, ldconsole: h.ldconsole });
+        if (alive)
+          setInfo({
+            mock: h.mock_driver,
+            driver: h.driver,
+            ldconsole: h.ldconsole,
+            androidSdk: h.android_sdk,
+          });
       })
       .catch(() => {
         /* health failed; show nothing */
@@ -50,16 +63,29 @@ function DriverBadge() {
   if (!info) {
     return <div className="mt-auto" />;
   }
-  if (info.mock) {
+  if (info.driver === "mock") {
     return (
       <NavLink
         to="/settings"
-        title="Phones will be virtual stubs until LDPlayer is detected. Click to open Settings."
+        title="Phones will be virtual stubs until LDPlayer or the Android SDK is detected. Click to open Settings."
         className="mt-auto mx-2 mb-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-tight text-amber-300 hover:bg-amber-500/15"
       >
         <div className="font-medium">Driver: Mock</div>
-        <div className="text-amber-300/70">LDPlayer not found · click to setup</div>
+        <div className="text-amber-300/70">No emulator backend · click to setup</div>
       </NavLink>
+    );
+  }
+  if (info.driver === "android_emulator") {
+    return (
+      <div
+        title={info.androidSdk ?? ""}
+        className="mt-auto mx-2 mb-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1.5 text-[11px] leading-tight text-emerald-300"
+      >
+        <div className="font-medium">Driver: AndroidEmulator</div>
+        <div className="truncate text-emerald-300/60" title={info.androidSdk ?? ""}>
+          {info.androidSdk ?? ""}
+        </div>
+      </div>
     );
   }
   return (
