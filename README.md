@@ -1,8 +1,18 @@
 # DroidFarm
 
-A desktop control plane for running **multiple Android emulators** on your Windows box, each with its **own proxy** so every phone truly looks like it's in a different country/city. Built for 1-10 concurrent devices, APK sideloading, Google Play pre-installed, ARM app support, and persistent always-on operation.
+A desktop control plane for running **multiple Android emulators** on your machine, each with its **own proxy** so every phone truly looks like it's in a different country/city. Built for 1-10 concurrent devices, APK sideloading, Google Play pre-installed, ARM app support, and persistent always-on operation.
 
-> ⚠️ **Running on a GCP Windows VM?** You **must** enable nested virtualization first or no emulator will boot. See [`docs/gcp-setup.md`](docs/gcp-setup.md) for the exact steps.
+**Runs on Windows, macOS (Apple Silicon native), and Linux.** Pick your platform:
+
+| Platform | Driver | Quick start |
+| --- | --- | --- |
+| Windows | LDPlayer 9 | [Quick start (Windows)](#quick-start-windows) · [`docs/gcp-setup.md`](docs/gcp-setup.md) for GCP |
+| macOS (M1/M2/M3/M4) | Google Android Emulator (HVF) | [Quick start (macOS)](#quick-start-macos) · [`mac/README.md`](mac/README.md) |
+| Linux | Google Android Emulator (KVM) or redroid | [Quick start (Linux)](#quick-start-linux) · [`docs/linux-setup.md`](docs/linux-setup.md) |
+
+Deeper docs: [Architecture](docs/ARCHITECTURE.md) · [Platforms & feature parity](docs/PLATFORMS.md) · [Where to deploy](docs/DEPLOYMENT.md) · [Troubleshooting](docs/TROUBLESHOOTING.md).
+
+> ⚠️ **Running on a cloud VM?** Most cloud VMs (GCP, AWS non-`.metal`) **cannot run hardware-accelerated Android emulators** because nested virtualization doesn't pass through the CPU features Android needs. Read [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before picking a host. TL;DR: bare-metal Linux (Hetzner) or your local Mac/PC are the practical options.
 
 ---
 
@@ -35,7 +45,25 @@ Two options:
 
 See **[`docs/gcp-setup.md`](docs/gcp-setup.md)** if you're hosting on GCP — nested virt is a prerequisite.
 
-## Quick start (Linux / macOS)
+## Quick start (macOS)
+
+Works great on Apple Silicon Macs (M1–M4) with native ARM Android.
+
+```bash
+git clone https://github.com/devasan1/droidfarm.git
+cd droidfarm
+bash mac/setup.sh           # one-shot installer (~10 min)
+mac/droidfarm.command       # launch (or double-click in Finder)
+```
+
+`setup.sh` installs Xcode CLT, Homebrew, OpenJDK 17, Python 3.11, Node 20, the
+Google Android SDK, an Android system image, the factory AVD, and the
+DroidFarm Python venv. It's idempotent — safe to interrupt and re-run.
+
+Full A-Z guide: **[`mac/README.md`](mac/README.md)**. Feature parity vs.
+Windows / Linux: [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+
+## Quick start (Linux)
 
 ```bash
 git clone https://github.com/devasan1/droidfarm.git
@@ -74,15 +102,20 @@ Avoid lifetime "$50 forever" sellers — those are either botnets or resold junk
 
 ```
 droidfarm/
-├── app/                  Tauri v2 shell (Rust)
+├── src-tauri/            Tauri v2 shell (Rust) — Windows MSI/NSIS, optional macOS .app
 ├── frontend/             React + Vite + Tailwind UI
 ├── backend/              Python FastAPI sidecar
 │   └── droidfarm/
 │       ├── api/          HTTP routes (phones, proxies, apks, settings)
-│       ├── core/         LDPlayer driver, ADB wrapper, proxy pool, geo spoof
+│       ├── core/         driver.py (LDPlayer / AndroidEmulator / Mock),
+│       │                 ADB wrapper, proxy pool, geo spoof, scheduler
 │       └── main.py
-├── scripts/              install.ps1, start.ps1, dev.ps1, etc.
-└── docs/                 gcp-setup.md and other guides
+├── splash/               Bundled splash page shown during first-run setup
+├── mac/                  macOS path — setup.sh / droidfarm.command / README
+├── scripts/              install.ps1, start.ps1, dev.ps1, etc. (Windows)
+├── DroidFarm.bat         Windows one-click launcher
+├── droidfarm.sh          Linux launcher
+└── docs/                 ARCHITECTURE / PLATFORMS / DEPLOYMENT / TROUBLESHOOTING / ...
 ```
 
 ## Status

@@ -8,6 +8,17 @@ everything you need from scratch, `droidfarm.command` launches the app,
 `uninstall.sh` cleans up. The shared Python / TypeScript code lives in
 `../backend` and `../frontend`; you don't need to touch them.
 
+**See also:**
+
+- [`../docs/PLATFORMS.md`](../docs/PLATFORMS.md) — feature parity matrix
+  for the Mac driver vs. Windows / Linux.
+- [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) — how Mac compares to
+  Hetzner / cloud hosts.
+- [`../docs/TROUBLESHOOTING.md`](../docs/TROUBLESHOOTING.md) — more Mac
+  troubleshooting beyond what's in this file.
+- [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §6 — how
+  `AndroidEmulatorDriver` fits in.
+
 ---
 
 ## What you get
