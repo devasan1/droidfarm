@@ -215,26 +215,69 @@ class Driver(ABC):
     # ... etc
 ```
 
-Two implementations ship with the repo:
+Three implementations ship with the repo:
 
 - **`LDPlayerDriver`** — shells out to `ldconsole.exe` (LDPlayer 9's CLI) for
   lifecycle + native GPS/locale spoofing, and to `adb` for in-phone commands
-  (settings, setprop, screencap). Used in production on Windows.
+  (settings, setprop, screencap). Used in production on Windows. ldconsole
+  returns non-zero exit codes (commonly 3) on `add` and `copy` even when
+  successful — `_run` accepts `check=False` and the caller verifies via
+  `list2`.
+- **`AndroidEmulatorDriver`** — wraps Google's stock `emulator`,
+  `avdmanager`, and `adb` from the Android SDK. The cross-platform driver:
+  used on **macOS** (Apple Silicon → arm64-v8a system image, native via HVF;
+  Intel → x86_64 with HAXM), **Linux** (KVM via `/dev/kvm`), and **Windows
+  without LDPlayer** (WHPX/HAXM). AVDs live under
+  `~/.android/avd/<name>.avd/` plus a sibling `<name>.ini`. Cloning is a
+  filesystem copy + `.ini` rewrite (faster than ldconsole's `copy`). Per-AVD
+  settings (resolution, dpi, cpu, ram, IMEI) are written into `config.ini`
+  before boot. Locale / timezone / Android ID / GPS are applied via `adb`
+  after boot.
 - **`MockDriver`** — no-op in-memory driver that returns colored PNG
-  screenshots. Used on Linux/macOS for dev & for pytest. It persists nothing;
-  state lives only in its own dict.
+  screenshots. Used on hosts without any real driver, in CI, and in pytest.
+  It persists nothing; state lives only in its own dict. `supports_adb` is
+  False, so any adb-dependent operation returns 501.
 
-**Choosing at runtime:** `backend/droidfarm/config.py` sets
-`DROIDFARM_MOCK_DRIVER=1` automatically on non-Windows hosts or when
-`ldconsole.exe` isn't on PATH. You can force mock with the env var.
+**Choosing at runtime:** `backend/droidfarm/config.py` and `get_driver()` in
+`driver.py` together pick the driver in this priority:
+
+1. `DROIDFARM_MOCK=1` env → `MockDriver` (CI / dev override).
+2. `DROIDFARM_DRIVER` env (`ldplayer` / `android_emulator` / `mock`) →
+   forced choice (still requires the underlying tool to be present).
+3. `ldconsole.exe` detected (Windows) → `LDPlayerDriver`.
+4. Android SDK detected (any OS) → `AndroidEmulatorDriver`.
+5. Otherwise → `MockDriver`.
+
+Detection paths:
+
+- **LDPlayer**: scans `C:\`, `D:\`, `E:\` drives for
+  `\LDPlayer\LDPlayer9\ldconsole.exe`,
+  `\Program Files\LDPlayer\LDPlayer9\ldconsole.exe`,
+  `\Program Files (x86)\LDPlayer\LDPlayer9\ldconsole.exe`,
+  `\LDPlayer9\ldconsole.exe`. Override with `DROIDFARM_LDCONSOLE`.
+- **Android SDK**: `~/Library/Android/sdk` (Mac), `~/Android/Sdk` (Linux),
+  `%LOCALAPPDATA%\Android\Sdk` (Windows), plus the standard env vars
+  `ANDROID_SDK_ROOT` / `ANDROID_HOME`. Override with
+  `DROIDFARM_ANDROID_SDK`.
+
+`/api/health` returns `{driver, ldconsole, android_sdk, adb, platform, ...}`
+so the frontend can render the right sidebar pill (green for a real driver,
+amber for mock) and the Settings → Driver section can show install
+instructions for whichever driver is missing.
 
 **Adding a new driver** (e.g. a `RedroidDriver` for real Android on Linux via
 Docker):
 
-1. Create `backend/droidfarm/core/drivers_redroid.py` (or similar).
-2. Subclass `Driver` and implement every abstract method.
-3. Wire it into `config.py`'s `get_driver()` factory.
-4. Add tests that exercise the new driver against the abstract `Driver`
+1. Create a class in `backend/droidfarm/core/driver.py` (or a sibling module
+   imported from there) that subclasses `Driver` and implements every
+   abstract method.
+2. Add detection in `config.py` (a `_default_<thing>()` function + a new
+   field on `Settings`).
+3. Wire it into `get_driver()` in `driver.py` with the appropriate
+   priority.
+4. Update `/api/health` and the frontend's `DriverBadge` / Settings page so
+   the new driver is surfaced in the UI.
+5. Add tests that exercise the new driver against the abstract `Driver`
    contract (see `tests/test_api.py` for how the mock is exercised).
 
 This is how iOS support (hypothetical) or a QEMU-based Android-x86 driver
