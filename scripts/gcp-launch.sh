@@ -133,6 +133,7 @@ sudo apt-get update -qq
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
   qemu-kvm libvirt-daemon-system cpu-checker \
   python3.11 python3.11-venv python3-pip \
+  openjdk-17-jdk-headless \
   curl git unzip ca-certificates \
   android-tools-adb \
   >/dev/null
@@ -163,34 +164,41 @@ export ANDROID_SDK_ROOT="$SDK_ROOT"
 export ANDROID_HOME="$SDK_ROOT"
 export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$SDK_ROOT/platform-tools:$SDK_ROOT/emulator:$PATH"
 
+# JAVA_HOME — sdkmanager / avdmanager are JDK tools and refuse to start otherwise.
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export PATH="$JAVA_HOME/bin:$PATH"
+
 if [[ ! -x "$SDK_ROOT/emulator/emulator" ]]; then
-  say "installing platform-tools + emulator + system-image (Android 13, x86_64) ..."
+  say "installing platform-tools + emulator + system-image (Android 14, x86_64) ..."
   yes | sdkmanager --licenses >/dev/null
   sdkmanager --install \
     "platform-tools" \
     "emulator" \
-    "platforms;android-33" \
-    "system-images;android-33;google_apis;x86_64" >/dev/null
+    "platforms;android-34" \
+    "system-images;android-34;google_apis;x86_64" >/dev/null
 fi
 
-# Persist SDK env for future logins
+# Persist SDK + JDK env for future logins (so manual SSH sessions can run
+# avdmanager / emulator without re-exporting these every time).
 SHELL_RC="$HOME/.bashrc"
 grep -q ANDROID_SDK_ROOT "$SHELL_RC" 2>/dev/null || cat >> "$SHELL_RC" <<EOF
 
-# DroidFarm — Android SDK
+# DroidFarm — Java + Android SDK
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export ANDROID_SDK_ROOT="$SDK_ROOT"
 export ANDROID_HOME="$SDK_ROOT"
-export PATH="\$SDK_ROOT/cmdline-tools/latest/bin:\$SDK_ROOT/platform-tools:\$SDK_ROOT/emulator:\$PATH"
+export PATH="\$JAVA_HOME/bin:\$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:\$ANDROID_SDK_ROOT/platform-tools:\$ANDROID_SDK_ROOT/emulator:\$PATH"
 EOF
 
-# DroidFarm checkout
+# DroidFarm checkout. Use a non-shallow clone so the user can `git fetch`
+# arbitrary fix branches later without needing `--unshallow` first.
 DROIDFARM_DIR="$HOME/droidfarm"
 if [[ ! -d "$DROIDFARM_DIR/.git" ]]; then
   say "cloning DroidFarm ..."
-  git clone --depth 1 --branch "${DROIDFARM_REF:-main}" \
+  git clone --branch "${DROIDFARM_REF:-main}" \
     "${DROIDFARM_REPO:-https://github.com/devasan1/droidfarm.git}" "$DROIDFARM_DIR"
 else
-  ( cd "$DROIDFARM_DIR" && git fetch --depth 1 origin "${DROIDFARM_REF:-main}" && git reset --hard FETCH_HEAD ) >/dev/null
+  ( cd "$DROIDFARM_DIR" && git fetch origin "${DROIDFARM_REF:-main}" && git reset --hard FETCH_HEAD ) >/dev/null
 fi
 
 # Run the launcher in the background. Bind 127.0.0.1 — the SSH tunnel
@@ -205,10 +213,24 @@ if pgrep -f "uvicorn droidfarm.main:app" >/dev/null 2>&1; then
   sleep 2
 fi
 
+# Sanity-check kvm group membership before starting. groups added via
+# `usermod -aG kvm` only take effect on a new login session — if the
+# bootstrap user's shell pre-dates the group add, the backend it spawns
+# will inherit the old group set and fail with EACCES on /dev/kvm.
+if ! id -nG | tr ' ' '\n' | grep -qx kvm; then
+  warn "current shell is NOT in the 'kvm' group yet (sudo usermod -aG kvm just ran)."
+  warn "the backend started below will inherit the old group set and won't be"
+  warn "able to spawn emulators. Log out, SSH back in, and re-run this script"
+  warn "to pick up the group. Or restart the backend manually after re-login."
+fi
+
 say "starting DroidFarm (bind 127.0.0.1:${DROIDFARM_PORT:-7870}) ..."
 DROIDFARM_HOST=127.0.0.1 \
 DROIDFARM_PORT="${DROIDFARM_PORT:-7870}" \
+JAVA_HOME="$JAVA_HOME" \
 ANDROID_SDK_ROOT="$SDK_ROOT" \
+ANDROID_HOME="$SDK_ROOT" \
+PATH="$JAVA_HOME/bin:$SDK_ROOT/cmdline-tools/latest/bin:$SDK_ROOT/platform-tools:$SDK_ROOT/emulator:$PATH" \
 nohup ./droidfarm.sh >> "$HOME/.droidfarm/bootstrap.log" 2>&1 &
 
 say "DroidFarm launching in the background. Tail logs with:"
