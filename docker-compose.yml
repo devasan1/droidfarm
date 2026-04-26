@@ -8,6 +8,12 @@
 #  Once running, open http://localhost:7870 in your browser.
 #  Data (SQLite DB + APKs + templates) is persisted in the
 #  `droidfarm-data` named volume.
+#
+#  The host port is bound to 127.0.0.1 by default — DroidFarm has no
+#  authentication yet and exposes adb-shell + scheduling, so it is
+#  not safe to publish on the public internet. To deliberately expose
+#  it on your LAN (or to bind 0.0.0.0 inside a private VPC), set
+#  DROIDFARM_BIND_HOST=0.0.0.0 in the environment running compose.
 # =============================================================
 
 services:
@@ -17,7 +23,9 @@ services:
     container_name: droidfarm
     restart: unless-stopped
     ports:
-      - "7870:7870"
+      # Bind to 127.0.0.1 on the host by default. Override with
+      # DROIDFARM_BIND_HOST=0.0.0.0 if you really want LAN access.
+      - "${DROIDFARM_BIND_HOST:-127.0.0.1}:7870:7870"
     volumes:
       - droidfarm-data:/data
     environment:
@@ -25,6 +33,9 @@ services:
       # UI without real phones, or set DROIDFARM_DRIVER=redroid and add
       # redroid services via the profile below.
       DROIDFARM_MOCK: "1"
+      # 0.0.0.0 inside the container is fine — the container's network
+      # namespace is private; host-side reachability is controlled by
+      # the `ports:` mapping above.
       DROIDFARM_HOST: "0.0.0.0"
       DROIDFARM_PORT: "7870"
 
