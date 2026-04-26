@@ -69,14 +69,30 @@ phase_a_mount_binderfs() {
 phase_b_kvm() {
   info "Phase B — KVM"
   if [[ ! -e /dev/kvm ]]; then
-    warn "/dev/kvm not found. Your VM doesn't expose hardware virtualization."
-    warn "On cloud VMs this is a VM-creation-time flag:"
-    warn "  GCP:  --enable-nested-virtualization --min-cpu-platform='Intel Cascade Lake'"
-    warn "  AWS:  use a .metal instance (c5n.metal, etc.)"
-    warn "  Azure: most D-series v3+ have it by default"
-    warn "redroid will still work, just ~3-5x slower (software emulation)."
-    echo
-    return 0
+    warn "/dev/kvm is missing. The VM does not expose hardware virtualization."
+    warn ""
+    warn "DroidFarm's Android Emulator + redroid drivers both NEED /dev/kvm."
+    warn "Without it, real-Android phones either won't start or will run at"
+    warn "~3–5x slowdown (software emulation), which is unusable for a farm."
+    warn ""
+    warn "How to fix it on each cloud:"
+    warn "  GCP — recreate the VM with nested virt enabled. Must be Intel"
+    warn "        family (n1/n2/c2/c3); E2/N2D/T2D/T2A do NOT support it."
+    warn "          gcloud compute instances create NAME \\"
+    warn "            --machine-type=n2-standard-8 \\"
+    warn "            --enable-nested-virtualization \\"
+    warn "            --min-cpu-platform='Intel Cascade Lake'"
+    warn "        Or use the bundled helper: ./scripts/gcp-launch.sh"
+    warn "  AWS — use a .metal instance (c5.metal, c5n.metal, m5.metal …)."
+    warn "        T-class / shared-core instances cannot expose KVM."
+    warn "  Azure — D/E-series v3+ have nested virt by default."
+    warn ""
+    if [[ "${DROIDFARM_ALLOW_NO_KVM:-0}" == "1" ]]; then
+      warn "DROIDFARM_ALLOW_NO_KVM=1 set — continuing without /dev/kvm."
+      warn "Expect 3-5x slower emulator boots and high CPU usage."
+      return 0
+    fi
+    die  "Aborting: /dev/kvm is required. Set DROIDFARM_ALLOW_NO_KVM=1 to override."
   fi
   echo "  OK  /dev/kvm exists"
 

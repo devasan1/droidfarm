@@ -40,12 +40,19 @@ docker compose up --build
 
 Then open http://localhost:7870. Stop with `Ctrl+C`.
 
-To expose on your LAN instead of localhost:
+By default the host port is bound to `127.0.0.1` only — DroidFarm has
+no auth yet and exposes adb-shell + scheduling, so it isn't safe to
+publish publicly. To deliberately expose it on your LAN:
 
 ```bash
-docker compose up --build  # already binds 0.0.0.0:7870
+DROIDFARM_BIND_HOST=0.0.0.0 docker compose up --build
 # on the host:  open http://<your-ip>:7870 from another machine
 ```
+
+For cloud setups, see [docs/gcp-setup.md](gcp-setup.md) — the
+recommended pattern is to keep DroidFarm bound to `127.0.0.1` on the
+cloud VM and reach it from your laptop via an SSH local-port-forward
+(no public exposure, no firewall rules, no auth needed yet).
 
 ## Driving real Android instances from Linux
 
