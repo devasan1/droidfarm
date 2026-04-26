@@ -327,7 +327,7 @@ class AndroidEmulatorDriver(Driver):
         # The setup script picks one and pins it here.
         self.system_image = system_image or _default_system_image()
 
-        self._emulator = self._find_tool("emulator", "emulator")
+        self._emulator = self._find_tool("emulator/emulator", "emulator")
         self._avdmanager = self._find_tool("cmdline-tools/latest/bin/avdmanager", "avdmanager")
         self._adb = self._find_tool("platform-tools/adb", "adb")
         self._lock = threading.Lock()
@@ -347,8 +347,11 @@ class AndroidEmulatorDriver(Driver):
             self.sdk_root / f"{sdk_relpath}{bat}",
         ]
         # avdmanager / sdkmanager on Windows are .bat; emulator/adb are .exe.
+        # Use is_file() so we never accidentally return a directory whose name
+        # collides with the binary (e.g. <sdk_root>/emulator is a dir, the
+        # binary is <sdk_root>/emulator/emulator).
         for c in candidates:
-            if c.exists():
+            if c.is_file():
                 return str(c)
 
         which = shutil.which(exe_name)
