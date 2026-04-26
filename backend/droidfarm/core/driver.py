@@ -405,10 +405,16 @@ class AndroidEmulatorDriver(Driver):
                     self._index_map[name] = idx
                     return idx
         # Otherwise pick the next free slot among already-known indices.
+        # Walk avd_home directly instead of calling _scan_avds() — _scan_avds
+        # itself calls back into _allocate_index, so the two would recurse
+        # infinitely the first time an AVD is created (config.ini doesn't yet
+        # have droidfarm.index because we're in the middle of allocating it).
         used = set(self._index_map.values())
-        for inst in self._scan_avds():
-            cfg2 = self._avd_dir(inst.name) / "config.ini"
-            if cfg2.exists():
+        if self.avd_home.exists():
+            for ini in self.avd_home.glob("*.ini"):
+                cfg2 = self._avd_dir(ini.stem) / "config.ini"
+                if not cfg2.exists():
+                    continue
                 for line in cfg2.read_text().splitlines():
                     m = re.match(r"\s*droidfarm\.index\s*=\s*(\d+)\s*$", line)
                     if m:
