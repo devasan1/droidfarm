@@ -5,12 +5,17 @@ This doc explains which hosts work, which don't, and what they cost.
 
 Short version:
 
-> **For real phones, use bare-metal Linux (Hetzner) or your local Mac/PC. Skip cloud VMs.**
+> **For interactive use or >6 phones, use bare-metal Linux (Hetzner) or your local Mac/PC.**
+>
+> **For automation / batch workloads, GCE with `--enable-nested-virtualization` works well via [`docs/gcp-setup.md`](gcp-setup.md) at ~30–50% bare-metal speed.**
 
-Why: Android emulators need hardware-accelerated virtualization (HVF on Mac,
-KVM on Linux, Hyper-V/WHPX on Windows). Most cloud VMs expose *nested*
-virtualization, which is too slow / too incomplete for Android to be
-practical.
+Why: Android emulators need hardware-accelerated virtualization (HVF on
+Mac, KVM on Linux, Hyper-V/WHPX on Windows). Most cloud VMs expose
+*nested* virtualization, which is slower than native and on some
+providers incomplete. The Linux Android emulator + nested KVM
+combination on GCE works in practice (now validated end-to-end with
+`scripts/gcp-launch.sh`); LDPlayer + nested Hyper-V on GCE Windows
+does not.
 
 ## Decision tree
 
@@ -19,9 +24,10 @@ Will I run real phones on this host?
 ├── No (dev / CI / UI work) ────► any cheap VM + MockDriver. Done.
 ├── Yes, 1–4 phones, ad-hoc    ────► your local Mac or Windows PC.
 ├── Yes, 1–4 phones, always-on ────► mini PC at home (Mac mini, NUC, etc.).
+├── Yes, automation / batch jobs ───► GCE n2-standard-8 with nested virt. See docs/gcp-setup.md.
 ├── Yes, 5–15 phones, always-on ───► bare-metal Linux (Hetzner AX42 / EX44).
 ├── Yes, 20+ phones, always-on ────► multiple bare-metal boxes + redroid (planned).
-└── Yes, but I'm locked into AWS/GCP ─► either bare-metal (`*.metal` on AWS) or rethink.
+└── Yes, but I'm locked into AWS/GCP ─► GCE nested virt for moderate use, otherwise `*.metal`.
 ```
 
 ## Hosts that work well
@@ -68,24 +74,40 @@ Will I run real phones on this host?
 - Reasonable if you need to burst 50+ phones for a short campaign; brutal
   as a 24/7 host.
 
+### GCE Linux + nested KVM (N1 / N2 / C2 / C3 with `--enable-nested-virtualization`)
+
+- **Works**, but slower than bare metal. The Linux Android emulator
+  uses nested KVM successfully on Intel-family GCE machine types.
+  Validated end-to-end via `scripts/gcp-launch.sh` on `n2-standard-8`.
+- **n2-standard-8** (8 vCPU / 32 GB) handles 2–4 phones at 4 vCPU /
+  4 GB each.
+- **n2-standard-16** (16 vCPU / 64 GB) handles 6–8 phones.
+- ~30–50% slower than bare metal because of the double hypervisor
+  layer. Fine for automation / cron jobs / scripted workflows. Painful
+  for interactive UI use — the screencap-polling render path adds an
+  inherent ~1–2 s tap-to-feedback latency on top of the CPU overhead.
+- Boots take ~60–90 s; the very first phone takes ~2 min while
+  DroidFarm builds the configured-template AVD.
+- Walkthrough: [`docs/gcp-setup.md`](gcp-setup.md).
+
 ## Hosts that don't work (for real phones)
 
-### Regular GCP VMs (N2, N2D, C3, etc.)
+### GCE Windows + LDPlayer (nested Hyper-V)
 
-- **Will** boot DroidFarm. **Won't** run hardware-accelerated Android.
-- Even with `--enable-nested-virtualization`, the Android emulator either
-  refuses to enter accelerated mode or enters it at ~2-5 fps.
-- LDPlayer requires nested Hyper-V specifically; GCP exposes nested KVM.
-  The CPU features LDPlayer needs (`VT-x unrestricted guest`, `EPT`, a
-  subset of APIC virt) aren't fully passed through.
-- Fine as a **control-plane** host (backend + UI) if your phones live
-  elsewhere.
+- **Won't** run accelerated Android. LDPlayer requires nested Hyper-V
+  specifically; GCP exposes nested KVM.
+- The CPU features LDPlayer needs (`VT-x unrestricted guest`, `EPT`, a
+  subset of APIC virt) aren't fully passed through to the Windows
+  guest.
+- Use the Linux + nested KVM path above instead, or move LDPlayer to a
+  local Windows PC.
 
 ### Regular AWS EC2 (t3, m5, c5, etc.)
 
-- Same story as GCP: Nitro hypervisor doesn't pass KVM through to the
-  guest, so the emulator falls back to software emulation.
+- Nitro hypervisor doesn't pass KVM through to the guest, so the
+  Android emulator falls back to software emulation.
 - Software emulation is 5-20x slower than KVM; unusable in practice.
+- Use `*.metal` instances or move to GCE / bare metal.
 
 ### Azure VMs (D-series, E-series, etc.)
 
@@ -124,7 +146,8 @@ Will I run real phones on this host?
 | M4 Mac mini (one-time $600)   | amortized ~$17/mo over 3yr | Assumes you already have electricity/network |
 | Used mini PC (one-time $300)  | amortized ~$8/mo | Same |
 | Oracle ARM free tier          | $0            | Only 2 phones; free-tier can be revoked |
-| GCP n2-standard-8 (preemptible) | ~$150 but **doesn't actually work** | Will burn money without booting a phone |
+| GCE n2-standard-8 (on-demand)    | ~$280         | Works via nested virt; ~30–50% slower than bare metal |
+| GCE n2-standard-8 (preemptible)  | ~$150         | Same as above but evicted every 24h max |
 | AWS c5.metal                  | ~$2,900       | Massive overkill unless running 50+ phones |
 | Azure Dpdsv5 (d8pdsv5)        | ~$280         | ARM-native, works |
 
@@ -216,7 +239,14 @@ default; see [`docs/linux-kernel-setup.md`](linux-kernel-setup.md).
 
 **Q: I already have a GCP VM with DroidFarm — is this all wasted?**
 
-A: No. Use it as a **control-plane** host: run the backend + DB + UI
+A: No. Two paths depending on the VM's machine type:
+
+1. **N1 / N2 / C2 / C3 with `--enable-nested-virtualization`**: re-provision
+   via `scripts/gcp-launch.sh` (or run it on the existing VM — it's
+   idempotent). The Linux Android emulator works; see
+   [`docs/gcp-setup.md`](gcp-setup.md).
+2. **E2 / N2D / T2A / T2D / shared-core**: nested virt isn't supported.
+   Use the VM as a **control-plane** host: run the backend + DB + UI
 there, but run the phones on a different machine and point the scheduler
 at them over a VPN. This is a less common setup; you'd have to adapt the
 driver to dispatch commands over SSH to the remote phone host.

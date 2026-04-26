@@ -9,10 +9,14 @@ A desktop control plane for running **multiple Android emulators** on your machi
 | Windows | LDPlayer 9 | [Quick start (Windows)](#quick-start-windows) · [`docs/gcp-setup.md`](docs/gcp-setup.md) for GCP |
 | macOS (M1/M2/M3/M4) | Google Android Emulator (HVF) | [Quick start (macOS)](#quick-start-macos) · [`mac/README.md`](mac/README.md) |
 | Linux | Google Android Emulator (KVM) or redroid | [Quick start (Linux)](#quick-start-linux) · [`docs/linux-setup.md`](docs/linux-setup.md) |
+| GCE (Linux + nested virt) | Google Android Emulator (nested KVM) | [`docs/gcp-setup.md` Path A](docs/gcp-setup.md#path-a--linux--ssh-tunnel-recommended) — one-shot `scripts/gcp-launch.sh` |
 
 Deeper docs: [Architecture](docs/ARCHITECTURE.md) · [Platforms & feature parity](docs/PLATFORMS.md) · [Where to deploy](docs/DEPLOYMENT.md) · [Troubleshooting](docs/TROUBLESHOOTING.md).
 
-> ⚠️ **Running on a cloud VM?** Most cloud VMs (GCP, AWS non-`.metal`) **cannot run hardware-accelerated Android emulators** because nested virtualization doesn't pass through the CPU features Android needs. Read [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before picking a host. TL;DR: bare-metal Linux (Hetzner) or your local Mac/PC are the practical options.
+> ⚠️ **Running on a cloud VM?** Most cloud VMs (E2 / N2D / T2A on GCP, AWS non-`.metal`) **cannot run hardware-accelerated Android emulators** because their hypervisor doesn't expose nested virtualization. The supported cloud paths are:
+> - **GCE on N1 / N2 / C2 / C3 with `--enable-nested-virtualization`** — fully working via `scripts/gcp-launch.sh`. ~30–50% slower than bare metal, fine for automation, laggy for interactive use. See [`docs/gcp-setup.md`](docs/gcp-setup.md).
+> - **Bare-metal Linux** (Hetzner AX line, Equinix Metal, AWS `.metal`) — native KVM speed, recommended for >6 phones or interactive workflows. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+> - **Local Mac / PC** — the original target; best perf, no infra to manage.
 
 ---
 

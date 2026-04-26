@@ -30,7 +30,63 @@ Environment variables:
 | `DROIDFARM_PORT` | `7870` | HTTP port |
 | `DROIDFARM_HOST` | `127.0.0.1` | Bind address (use `0.0.0.0` to expose on LAN) |
 | `DROIDFARM_DATA_DIR` | `~/.droidfarm` | Where the SQLite DB + APKs + templates live |
+| `DROIDFARM_ANDROID_SYSTEM_IMAGE` | `system-images;android-34;google_apis;x86_64` | Pin the system image used by the AndroidEmulatorDriver. Set this if you can't or don't want to install android-34. |
 | `DROIDFARM_MOCK` | auto | Force mock driver (`1` / `0`) |
+
+### Bare-Linux requirements for the AndroidEmulatorDriver
+
+`droidfarm.sh` itself doesn't install KVM, the JDK, or the Android SDK
+— it expects a working host. On a fresh Linux box (Ubuntu 22.04+ /
+Debian 12+) the minimum is:
+
+```bash
+# 1. virtualization
+sudo apt-get install -y qemu-kvm libvirt-daemon-system cpu-checker
+sudo usermod -aG kvm,libvirt "$USER"
+# !! log out and log back in for the group change to apply !!
+
+# 2. JDK 17 (sdkmanager / avdmanager are JDK apps)
+sudo apt-get install -y openjdk-17-jdk-headless
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# 3. Android SDK (cmdline-tools + platform-tools + emulator + a system image)
+mkdir -p ~/Android/Sdk/cmdline-tools
+cd /tmp
+curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmd.zip
+unzip -q cmd.zip
+mv cmdline-tools ~/Android/Sdk/cmdline-tools/latest
+
+export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
+export ANDROID_HOME="$ANDROID_SDK_ROOT"
+export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$PATH"
+
+yes | sdkmanager --licenses >/dev/null
+sdkmanager --install \
+  "platform-tools" \
+  "emulator" \
+  "platforms;android-34" \
+  "system-images;android-34;google_apis;x86_64"
+```
+
+Then `./droidfarm.sh` should detect a real driver (not mock). Verify:
+
+```bash
+curl -s http://127.0.0.1:7870/api/health | python3 -m json.tool
+# look for: "driver": {"name": "android-emulator", ...}
+```
+
+> If the sidebar pill in the UI says **Driver: Mock** despite the SDK
+> being installed, one of the three binaries is missing or not on
+> `PATH` for the backend process. The detector looks for
+> `cmdline-tools/latest/bin/avdmanager`, `platform-tools/adb`, and
+> `emulator/emulator` under `$ANDROID_SDK_ROOT`. Check
+> [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md#the-sidebar-pill-says-driver-mock-but-i-installed-ldplayer--android-sdk).
+
+For the GCP-specific one-shot version of all of this (plus nested-virt
+VM creation and the SSH tunnel), see
+[`docs/gcp-setup.md`](gcp-setup.md). For other cloud / bare-metal
+hosts, see [`docs/DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ## 2. Docker
 

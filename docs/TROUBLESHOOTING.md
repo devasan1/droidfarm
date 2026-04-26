@@ -186,13 +186,59 @@ If absent, the proxy was assigned but not written — report a bug.
 
 Your CPU doesn't have VT-x / AMD-V enabled, or you're on a host without
 hardware virt. Cloud VMs usually fall in the latter category — see
-[`docs/DEPLOYMENT.md`](DEPLOYMENT.md).
+[`docs/DEPLOYMENT.md`](DEPLOYMENT.md). On GCE specifically you need
+`--enable-nested-virtualization` at create time; see
+[`docs/gcp-setup.md`](gcp-setup.md).
 
-### `/dev/kvm` permission denied
+### `/dev/kvm` permission denied / `PermissionError: [Errno 13] ... '/dev/kvm'`
+
+Missing `kvm` group membership, **or** the backend process was started
+in a shell that pre-dated the group add. New group memberships only
+apply to new login sessions:
 
 ```bash
-sudo usermod -aG kvm $USER
-# log out and back in
+sudo usermod -aG kvm,libvirt $USER
+# stop the backend, fully exit SSH, reconnect, restart the backend
+pkill -f 'uvicorn droidfarm.main:app'
+exit          # then SSH back in
+# verify before restarting:
+id -nG | tr ' ' '\n' | grep -E '^kvm$'   # must print 'kvm'
+# verify the backend's view (after it's running):
+cat /proc/$(pgrep -f 'uvicorn droidfarm.main:app')/status | grep -i Groups
+```
+
+The Groups line must contain `109` (Ubuntu `kvm` GID) and ideally `124`
+(`libvirt`). A single-number line means the backend has zero
+supplementary groups and can't open `/dev/kvm`.
+
+### `sdkmanager` / `avdmanager` errors with `JAVA_HOME is not set`
+
+The Android command-line tools are JDK applications. On a fresh Linux
+VM (or after a minimal install), JDK 17 isn't there:
+
+```bash
+sudo apt-get install -y openjdk-17-jdk-headless
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+`scripts/gcp-launch.sh` (latest) installs this for you. If you ran an
+older version of the script, `git pull` and re-run.
+
+### `avdmanager create avd` fails with `Package path is not valid. Valid system image paths are: ...`
+
+The driver default and your installed system image disagree on which
+Android version to use. Either install the image the driver wants
+(default `system-images;android-34;google_apis;x86_64`) or pin the
+driver to whatever you have installed:
+
+```bash
+# install the missing image (recommended)
+sdkmanager --install "system-images;android-34;google_apis;x86_64"
+
+# or pin the driver (no extra download, restart backend)
+DROIDFARM_ANDROID_SYSTEM_IMAGE='system-images;android-33;google_apis;x86_64' \
+  ./droidfarm.sh
 ```
 
 ### Emulator exits immediately with "Failed to open /dev/goldfish-pipe"
@@ -202,25 +248,83 @@ package — should be present on Ubuntu 22.04+, Debian 12+. On a minimal
 kernel you may need to enable `CONFIG_ANDROID` flags; easier to use a
 stock distro kernel.
 
+### Emulator boots but the UI is laggy / `System UI isn't responding` ANR
+
+Click **Wait** on the ANR. You're either on a nested-virt cloud VM
+(expected; see [`docs/gcp-setup.md`](gcp-setup.md) section A2.6) or the
+emulator silently fell back to TCG (no KVM acceleration). Confirm
+with:
+
+```bash
+emulator -avd <any-avd> -no-window -no-audio -verbose 2>&1 | head -30 | grep -i -E 'kvm|tcg'
+# want: 'KVM accelerator detected'
+# bad:  'TCG enabled' or 'cpu: tcg'
+```
+
+If TCG, fix `/dev/kvm` group membership (above). If KVM is detected,
+the lag is the screencap-polling baseline (~1–2 s) plus first-15-min
+Android warmup; bump phone resources to 4 vCPU / 4096 MB RAM in the
+**Add phone** dialog and wait for warmup.
+
 ## GCP / AWS / Cloud VMs
 
-### VM console shows black screen
+Full cloud-specific guide: [`docs/gcp-setup.md`](gcp-setup.md). Below
+are quick pointers — the GCP doc has copy-pasteable fixes for each
+symptom.
 
-See [`docs/gcp-setup.md`](gcp-setup.md) for Windows-on-GCP specifically.
-Usual fixes: Ctrl+Alt+End for lock screen, restart VM, re-set the Windows
-password from the GCP console.
+### `gcp-launch.sh` aborts with "nested virtualization is required"
+
+The VM was created without `--enable-nested-virtualization` or with an
+unsupported machine type. Delete and re-create with the script.
+[Details](gcp-setup.md#a5-troubleshooting-linux--gce).
+
+### `gcp-tunnel.sh` errors with `permission denied (publickey)`
+
+`gcloud auth login` and verify your account has
+`roles/iap.tunnelResourceAccessor` on the project.
+
+### Phone-create succeeds but phone-start fails with `/dev/kvm` permission denied
+
+Your `kvm` group membership didn't propagate to the backend process.
+See [Linux → `/dev/kvm` permission denied](#devkvm-permission-denied--permissionerror-errno-13--devkvm) above.
+
+### `git checkout devin/<branch>` returns `pathspec did not match any file(s) known to git`
+
+The clone is shallow (older `gcp-launch.sh` used `--depth 1`). Either
+fetch the specific branch:
+
+```bash
+git fetch origin <branch>:<branch>
+git checkout <branch>
+```
+
+or un-shallow:
+
+```bash
+git fetch --unshallow
+git checkout <branch>
+```
 
 ### Phones boot but run at 2 fps
 
-You're on a nested-virt VM and the emulator fell back to software
-emulation. There is no fix on a regular cloud VM — move to bare metal.
-See [`docs/DEPLOYMENT.md`](DEPLOYMENT.md).
+Likely TCG fallback (no KVM acceleration). Check
+[Linux → emulator boots but UI is laggy](#emulator-boots-but-the-ui-is-laggy--system-ui-isnt-responding-anr).
+If KVM *is* engaged and you still need more speed, the nested-virt
+overhead floors you at ~30–50% of bare metal regardless of machine
+type — see [`docs/gcp-setup.md`](gcp-setup.md#a6-when-to-leave-the-cloud-bare-metal).
 
 ### "This machine type does not support nested virtualization"
 
-Use N2, N2D, C2, C2D, C3, C3D, M2, or M3 on GCP. Not all zones support
-every family — try `gcloud compute machine-types list --zones=<zone>`.
-Same concept applies to Azure (Dsv3+) and AWS (only `.metal`).
+Use N1, N2, C2, C3 (Intel) or N2D / C2D (AMD with `--threads-per-core=1`)
+on GCP. Not all zones support every family —
+`gcloud compute machine-types list --zones=<zone>`. Same concept
+applies to Azure (Dsv3+) and AWS (only `.metal`).
+
+### Windows-on-GCP: VM console shows black screen
+
+See [`docs/gcp-setup.md`](gcp-setup.md) Path B. Usual fixes:
+Ctrl+Alt+End for lock screen, restart VM, re-set the Windows password
+from the GCP console.
 
 ## Database / state
 
