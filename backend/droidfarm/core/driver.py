@@ -327,7 +327,7 @@ class AndroidEmulatorDriver(Driver):
         # The setup script picks one and pins it here.
         self.system_image = system_image or _default_system_image()
 
-        self._emulator = self._find_tool("emulator", "emulator")
+        self._emulator = self._find_tool("emulator/emulator", "emulator")
         self._avdmanager = self._find_tool("cmdline-tools/latest/bin/avdmanager", "avdmanager")
         self._adb = self._find_tool("platform-tools/adb", "adb")
         self._lock = threading.Lock()
@@ -347,8 +347,11 @@ class AndroidEmulatorDriver(Driver):
             self.sdk_root / f"{sdk_relpath}{bat}",
         ]
         # avdmanager / sdkmanager on Windows are .bat; emulator/adb are .exe.
+        # Use is_file() so we never accidentally return a directory whose name
+        # collides with the binary (e.g. <sdk_root>/emulator is a dir, the
+        # binary is <sdk_root>/emulator/emulator).
         for c in candidates:
-            if c.exists():
+            if c.is_file():
                 return str(c)
 
         which = shutil.which(exe_name)
@@ -405,10 +408,16 @@ class AndroidEmulatorDriver(Driver):
                     self._index_map[name] = idx
                     return idx
         # Otherwise pick the next free slot among already-known indices.
+        # Walk avd_home directly instead of calling _scan_avds() — _scan_avds
+        # itself calls back into _allocate_index, so the two would recurse
+        # infinitely the first time an AVD is created (config.ini doesn't yet
+        # have droidfarm.index because we're in the middle of allocating it).
         used = set(self._index_map.values())
-        for inst in self._scan_avds():
-            cfg2 = self._avd_dir(inst.name) / "config.ini"
-            if cfg2.exists():
+        if self.avd_home.exists():
+            for ini in self.avd_home.glob("*.ini"):
+                cfg2 = self._avd_dir(ini.stem) / "config.ini"
+                if not cfg2.exists():
+                    continue
                 for line in cfg2.read_text().splitlines():
                     m = re.match(r"\s*droidfarm\.index\s*=\s*(\d+)\s*$", line)
                     if m:
